@@ -10,45 +10,46 @@ import locale
 import base64
 from weasyprint import HTML, CSS
 
-# Definir locale para formatação de números em português
-try:
-    locale.setlocale(locale.LC_ALL, 'pt_BR.UTF-8')
-except locale.Error:
-    st.warning("Locale 'pt_BR.UTF-8' não encontrado.")
-    locale.setlocale(locale.LC_ALL, '')
-
 # --- 2. CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(layout="wide", page_title="Dashboard de Teleconsultorias")
 st.title("Dashboard de Gestão e Análise de Teleconsultorias")
 
 # --- 3. FUNÇÕES AUXILIARES ---
+
+# ### ALTERAÇÃO: A função format_number agora usa f-string ###
+def format_number(n):
+    """Formata um número com ponto como separador de milhar."""
+    if pd.isna(n):
+        return 'N/D'
+    try:
+        # Usa uma f-string para formatar com vírgulas e depois substitui por pontos.
+        # Isso funciona em qualquer sistema, sem depender do locale.
+        return f"{int(n):,}".replace(',', '.')
+    except (ValueError, TypeError):
+        return str(n)
+
 @st.cache_data
 def load_excel_upload(file):
     try: return pd.read_excel(file)
     except Exception as e: st.error(f"Erro ao ler arquivo Excel do upload: {e}"); return None
-
 @st.cache_data
 def load_local_data(path):
     if not os.path.exists(path): st.error(f"ERRO: Arquivo '{path}' não encontrado."); return None
     try: return pd.read_excel(path)
     except Exception as e: st.error(f"Erro ao ler arquivo local '{path}': {e}"); return None
-
 def find_existing(col_list, df_cols):
     for candidate in col_list:
         for c in df_cols:
             if str(c).strip().lower() == str(candidate).strip().lower(): return c
     return None
-
 def get_filter_options(df, col):
     if col in df.columns: return sorted(df[col].dropna().unique())
     return []
-
 def to_excel_bytes_generic(df_export):
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         df_export.to_excel(writer, index=False, sheet_name='Dados Filtrados')
     return output.getvalue()
-
 def to_excel_report_bytes(df_summary, df_details):
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
@@ -62,11 +63,6 @@ def to_excel_report_bytes(df_summary, df_details):
                     max_len = max(series.astype(str).map(len).max(), len(str(col))) + 2
                     worksheet.set_column(idx, idx, max_len)
     return output.getvalue()
-
-def format_number(n):
-    if pd.isna(n): return 'N/D'
-    try: return locale.format_string("%d", int(n), grouping=True)
-    except (ValueError, TypeError): return n
 
 # --- 4. CARREGAMENTO E PREPARAÇÃO DOS DADOS ---
 df_condicoes_raw = load_local_data('condicoes.xlsx')

@@ -7,3 +7,4 @@ kaleido
 Pillow
 weasyprint
 xlrd
+xlsxwriter

@@ -2,5 +2,8 @@ streamlit
 pandas
 plotly
 openpyxl
+fpdf2
+Pillow
+matplotlib
 xlrd
 xlsxwriter

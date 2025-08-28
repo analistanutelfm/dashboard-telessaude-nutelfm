@@ -7,13 +7,111 @@ import io
 from datetime import datetime
 import os
 import locale
+from fpdf import FPDF
+import matplotlib
+matplotlib.use('Agg') # Usa um backend não interativo, essencial para servidores
+import matplotlib.pyplot as plt
+from PIL import Image
+
+# Definir locale para formatação de números em português
+try:
+    locale.setlocale(locale.LC_ALL, 'pt_BR.UTF-8')
+except locale.Error:
+    st.warning("Locale 'pt_BR.UTF-8' não encontrado.")
+    locale.setlocale(locale.LC_ALL, '')
 
 
 # --- 2. CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(layout="wide", page_title="Dashboard de Teleconsultorias")
 st.title("Dashboard de Gestão e Análise de Teleconsultorias")
 
-# --- 3. FUNÇÕES AUXILIARES ---
+# --- 3. FUNÇÕES AUXILIARES E CLASSE PDF ---
+
+class PDFReport(FPDF):
+    def header(self):
+        self.set_font('Arial', 'B', 15)
+        self.cell(0, 10, 'Relatório de Análise de Teleconsultorias', 0, 1, 'C')
+        self.ln(10)
+
+    def footer(self):
+        self.set_y(-15)
+        self.set_font('Arial', 'I', 8)
+        hoje = datetime.now().strftime('%d/%m/%Y às %H:%M:%S')
+        self.cell(0, 10, f'Página {self.page_no()} | Gerado em: {hoje}', 0, 0, 'C')
+
+    def chapter_title(self, title):
+        self.set_font('Arial', 'B', 12)
+        self.cell(0, 10, title, 0, 1, 'L')
+        self.ln(4)
+
+    def write_pandas_table(self, df_table, col_widths):
+        self.set_fill_color(224, 235, 255)
+        self.set_font('Arial', 'B', 8)
+        for i, header in enumerate(df_table.columns):
+            self.cell(col_widths[i], 7, str(header), 1, 0, 'C', 1)
+        self.ln()
+        self.set_font('Arial', '', 7)
+        for index, row in df_table.iterrows():
+            if self.get_y() > 270:
+                self.add_page()
+            for i, item in enumerate(row):
+                self.cell(col_widths[i], 6, str(item), 1)
+            self.ln()
+        self.ln(8)
+
+def fig_to_bytes(fig):
+    """Converte uma figura Matplotlib para bytes em memória."""
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png', dpi=150, bbox_inches='tight')
+    plt.close(fig)
+    buf.seek(0)
+    return buf
+
+def gerar_grafico_performance_matplotlib(df_perf):
+    fig, ax = plt.subplots(figsize=(10, 7))
+    bar_width = 0.4
+    index = range(len(df_perf))
+    ax.bar(index, df_perf['Realizado_Periodo'], bar_width, label='Realizado no Período', color='#0d6efd')
+    ax.bar([i + bar_width for i in index], df_perf['CotaMensal_Estabelecimento'], bar_width, label='Cota Mensal', color='#adb5bd')
+    ax.set_ylabel('Quantidade')
+    ax.set_title('Comparativo de Realizado vs. Meta por Estabelecimento')
+    ax.set_xticks([i + bar_width / 2 for i in index])
+    ax.set_xticklabels(df_perf['Estabelecimento'], rotation=90, ha="right")
+    ax.legend()
+    ax.grid(axis='y', linestyle='--', alpha=0.7)
+    fig.tight_layout()
+    return fig_to_bytes(fig)
+
+def gerar_grafico_evolucao_matplotlib(df_ts):
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ax.plot(df_ts['Mês'], df_ts['Quantidade'], marker='o', linestyle='-', color='#fd7e14')
+    for i, txt in enumerate(df_ts['Quantidade']):
+        ax.annotate(txt, (df_ts['Mês'][i], df_ts['Quantidade'][i]), textcoords="offset points", xytext=(0,5), ha='center')
+    ax.set_ylabel('Quantidade')
+    ax.set_title('Evolução Mensal das Teleconsultorias')
+    plt.xticks(rotation=45, ha="right")
+    ax.grid(True, linestyle='--', alpha=0.6)
+    fig.tight_layout()
+    return fig_to_bytes(fig)
+
+def gerar_grafico_pizza_matplotlib(df_pie):
+    fig, ax = plt.subplots(figsize=(10, 7))
+    wedges, texts, autotexts = ax.pie(df_pie['count'], autopct='%1.1f%%', startangle=90, colors=plt.cm.Pastel1.colors)
+    ax.axis('equal')
+    ax.legend(wedges, df_pie['label'], title="Especialidades", loc="center left", bbox_to_anchor=(1, 0, 0.5, 1))
+    ax.set_title('Distribuição por Especialidade e Média de Resposta (h)')
+    return fig_to_bytes(fig)
+
+def gerar_grafico_barras_matplotlib(df_data, col_x, col_y, title, color):
+    fig, ax = plt.subplots(figsize=(10, 7))
+    ax.bar(df_data[col_x], df_data[col_y], color=color)
+    ax.set_ylabel('Quantidade')
+    ax.set_title(title)
+    plt.xticks(rotation=90, ha="right")
+    ax.grid(axis='y', linestyle='--', alpha=0.7)
+    fig.tight_layout()
+    return fig_to_bytes(fig)
+
 @st.cache_data
 def load_excel_upload(file):
     try: return pd.read_excel(file)
@@ -114,17 +212,14 @@ end_date_dt = pd.to_datetime(end_date)
 df_filtered = df[df['Data_Solicitacao'].between(start_date_dt, end_date_dt)].copy()
 
 st.sidebar.markdown("---")
+df_base_filtrado = df.copy()
 status_selecionado = []
 if 'Situação' in df.columns:
     todos_status = sorted(df['Situação'].dropna().unique())
     status_selecionado = st.sidebar.multiselect("Status", options=todos_status, placeholder="Filtrar por status")
     if status_selecionado:
-        df_filtered = df_filtered[df_filtered['Situação'].isin(status_selecionado)]
+        df_base_filtrado = df_base_filtrado[df_base_filtrado['Situação'].isin(status_selecionado)]
 st.sidebar.markdown("---")
-
-df_base_filtrado = df.copy()
-if status_selecionado:
-    df_base_filtrado = df_base_filtrado[df_base_filtrado['Situação'].isin(status_selecionado)]
 filters_config = [{'column': 'Monitor', 'label': 'Monitor de Campo'}, {'column': 'Macrorregiao', 'label': 'Macrorregião de Saúde'}, {'column': 'Microrregiao', 'label': 'Microrregião de Saúde'}, {'column': 'Municipio Solicitante', 'label': 'Município'}, {'column': 'Estabelecimento', 'label': 'Estabelecimento'}, {'column': 'Especialidade', 'label': 'Especialidade'}, {'column': 'Categoria Profissional', 'label': 'Categoria Profissional'}, {'column': 'SolicitanteNome', 'label': 'Nome do Solicitante'}, {'column': 'NomeEspecialista', 'label': 'Nome do Especialista'}]
 for f in filters_config:
     if f['column'] in df_base_filtrado.columns:
@@ -302,7 +397,7 @@ if not df_filtered_final.empty:
     st.dataframe(df_detalhe_geral, use_container_width=True)
     st.download_button(label="📥 Download dos Dados Filtrados (Geral)", data=to_excel_bytes_generic(df_detalhe_geral), file_name="Relatorio_Geral_Teleconsultorias.xlsx", mime="application/vnd.openxmlformats-officedocument.sheet")
 
-# ### SEÇÃO DE EXPORTAÇÃO DE PDF COM HTML/WEASYPRINT ###
+
 st.markdown("---")
 st.header("Exportar Relatório em PDF")
 
@@ -311,8 +406,8 @@ def generate_html_for_pdf(start_date, end_date, kpis, df_perf, figures, df_spec)
     def fig_to_base64(fig):
         if fig is None: return None
         try:
-            fig.update_layout(height=450, margin=dict(l=40, r=40, t=60, b=180))
-            img_bytes = fig.to_image(format="png", width=800, engine="kaleido")
+            fig.update_layout(margin=dict(l=40, r=40, t=60, b=180))
+            img_bytes = fig.to_image(format="png", width=800, height=500, engine="kaleido")
             return base64.b64encode(img_bytes).decode()
         except Exception as e:
             st.warning(f"Não foi possível converter um gráfico para o PDF. Erro: {e}")
@@ -325,7 +420,7 @@ def generate_html_for_pdf(start_date, end_date, kpis, df_perf, figures, df_spec)
     html = f"""
     <html><head><meta charset="UTF-8">
         <style>
-            @page {{ size: A4 portrait; margin: 1.5cm; }}
+            @page {{ size: A4 portrait; margin: 1.0cm; }}
             body {{ font-family: 'Helvetica', sans-serif; color: #333; font-size: 10px;}}
             h1 {{ text-align: center; color: #0056b3; font-size: 20px;}}
             h2 {{ color: #0056b3; border-bottom: 1px solid #0056b3; padding-bottom: 5px; margin-top: 25px; font-size: 14px;}}

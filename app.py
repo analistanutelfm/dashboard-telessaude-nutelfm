@@ -442,7 +442,7 @@ if st.button("Gerar Relatório PDF"):
                     img_bytes = gerar_grafico_barras_matplotlib(solicitante_count, 'SolicitanteNome', 'count', '', '#6f42c1')
                     pdf.image(img_bytes, w=190)
 
-                pdf_bytes = pdf.output(dest='S').encode('latin-1')
+                pdf_bytes = pdf.output()
                 
                 st.download_button(
                     label="📥 Download do Relatório PDF Final",

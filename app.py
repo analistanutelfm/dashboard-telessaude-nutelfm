@@ -7,26 +7,112 @@ import io
 from datetime import datetime
 import os
 import locale
-import base64
-from weasyprint import HTML, CSS
+from fpdf import FPDF
+import matplotlib
+matplotlib.use('Agg') # Usa um backend não interativo, essencial para servidores
+import matplotlib.pyplot as plt
+
+# Definir locale para formatação de números em português
+try:
+    locale.setlocale(locale.LC_ALL, 'pt_BR.UTF-8')
+except locale.Error:
+    st.warning("Locale 'pt_BR.UTF-8' não encontrado.")
+    locale.setlocale(locale.LC_ALL, '')
+
 
 # --- 2. CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(layout="wide", page_title="Dashboard de Teleconsultorias")
 st.title("Dashboard de Gestão e Análise de Teleconsultorias")
 
-# --- 3. FUNÇÕES AUXILIARES ---
+# --- 3. FUNÇÕES AUXILIARES E CLASSE PDF ---
 
-# ### ALTERAÇÃO: A função format_number agora usa f-string ###
-def format_number(n):
-    """Formata um número com ponto como separador de milhar."""
-    if pd.isna(n):
-        return 'N/D'
-    try:
-        # Usa uma f-string para formatar com vírgulas e depois substitui por pontos.
-        # Isso funciona em qualquer sistema, sem depender do locale.
-        return f"{int(n):,}".replace(',', '.')
-    except (ValueError, TypeError):
-        return str(n)
+class PDFReport(FPDF):
+    def header(self):
+        self.set_font('Arial', 'B', 15)
+        self.cell(0, 10, 'Relatório de Análise de Teleconsultorias', 0, 1, 'C')
+        self.ln(10)
+
+    def footer(self):
+        self.set_y(-15)
+        self.set_font('Arial', 'I', 8)
+        hoje = datetime.now().strftime('%d/%m/%Y às %H:%M:%S')
+        self.cell(0, 10, f'Página {self.page_no()} | Gerado em: {hoje}', 0, 0, 'C')
+
+    def chapter_title(self, title):
+        self.set_font('Arial', 'B', 12)
+        self.cell(0, 10, title, 0, 1, 'L')
+        self.ln(4)
+
+    def write_pandas_table(self, df_table, col_widths):
+        self.set_fill_color(224, 235, 255) # Cor de fundo azul claro para o cabeçalho
+        self.set_font('Arial', 'B', 8)
+        for i, header in enumerate(df_table.columns):
+            self.cell(col_widths[i], 7, str(header), 1, 0, 'C', 1)
+        self.ln()
+        self.set_font('Arial', '', 7)
+        for index, row in df_table.iterrows():
+            if self.get_y() > 270: # Adiciona nova página se a tabela for muito longa
+                self.add_page()
+            for i, item in enumerate(row):
+                self.cell(col_widths[i], 6, str(item), 1)
+            self.ln()
+        self.ln(8)
+
+def fig_to_bytes(fig):
+    """Converte uma figura Matplotlib para bytes em memória."""
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png', dpi=150, bbox_inches='tight')
+    plt.close(fig)
+    buf.seek(0)
+    return buf
+
+# ### NOVAS FUNÇÕES PARA GERAR GRÁFICOS ESTÁTICOS PARA O PDF ###
+def gerar_grafico_performance_matplotlib(df_perf):
+    fig, ax = plt.subplots(figsize=(10, 7)) # Aumenta a altura para mais espaço
+    bar_width = 0.4
+    index = range(len(df_perf))
+    
+    ax.bar(index, df_perf['Realizado_Periodo'], bar_width, label='Realizado no Período', color='#0d6efd')
+    ax.bar([i + bar_width for i in index], df_perf['CotaMensal_Estabelecimento'], bar_width, label='Cota Mensal', color='#adb5bd')
+    
+    ax.set_ylabel('Quantidade')
+    ax.set_title('Comparativo de Realizado vs. Meta por Estabelecimento')
+    ax.set_xticks([i + bar_width / 2 for i in index])
+    ax.set_xticklabels(df_perf['Estabelecimento'], rotation=90, ha="right")
+    ax.legend()
+    ax.grid(axis='y', linestyle='--', alpha=0.7)
+    fig.tight_layout() # Ajuste automático de layout
+    return fig_to_bytes(fig)
+
+def gerar_grafico_evolucao_matplotlib(df_ts):
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ax.plot(df_ts['Mês'], df_ts['Quantidade'], marker='o', linestyle='-', color='#fd7e14')
+    for i, txt in enumerate(df_ts['Quantidade']):
+        ax.annotate(txt, (df_ts['Mês'][i], df_ts['Quantidade'][i]), textcoords="offset points", xytext=(0,5), ha='center')
+    ax.set_ylabel('Quantidade')
+    ax.set_title('Evolução Mensal das Teleconsultorias')
+    plt.xticks(rotation=45, ha="right")
+    ax.grid(True, linestyle='--', alpha=0.6)
+    fig.tight_layout()
+    return fig_to_bytes(fig)
+
+def gerar_grafico_pizza_matplotlib(df_pie):
+    fig, ax = plt.subplots(figsize=(10, 7))
+    wedges, texts, autotexts = ax.pie(df_pie['count'], autopct='%1.1f%%', startangle=90, colors=plt.cm.Pastel1.colors)
+    ax.axis('equal')
+    ax.legend(wedges, df_pie['label'], title="Especialidades", loc="center left", bbox_to_anchor=(1, 0, 0.5, 1))
+    ax.set_title('Distribuição por Especialidade e Média de Resposta (h)')
+    return fig_to_bytes(fig)
+
+def gerar_grafico_barras_matplotlib(df_data, col_x, col_y, title, color):
+    fig, ax = plt.subplots(figsize=(10, 7))
+    ax.bar(df_data[col_x], df_data[col_y], color=color)
+    ax.set_ylabel('Quantidade')
+    ax.set_title(title)
+    plt.xticks(rotation=90, ha="right")
+    ax.grid(axis='y', linestyle='--', alpha=0.7)
+    fig.tight_layout()
+    return fig_to_bytes(fig)
 
 @st.cache_data
 def load_excel_upload(file):
@@ -63,31 +149,30 @@ def to_excel_report_bytes(df_summary, df_details):
                     max_len = max(series.astype(str).map(len).max(), len(str(col))) + 2
                     worksheet.set_column(idx, idx, max_len)
     return output.getvalue()
+def format_number(n):
+    if pd.isna(n): return 'N/D'
+    try: return locale.format_string("%d", int(n), grouping=True)
+    except (ValueError, TypeError): return n
 
 # --- 4. CARREGAMENTO E PREPARAÇÃO DOS DADOS ---
 df_condicoes_raw = load_local_data('condicoes.xlsx')
 df_estabelecimentos_raw = load_local_data('estabelecimentos.xlsx')
 df_categoria_raw = load_local_data('categoria.xlsx')
 uploaded_file = st.file_uploader("Faça upload do arquivo Excel principal de teleconsultorias (xls/xlsx):", type=["xls", "xlsx"])
-
 if uploaded_file is None or df_condicoes_raw is None or df_estabelecimentos_raw is None or df_categoria_raw is None:
-    st.warning("Por favor, faça o upload do arquivo principal e verifique se os arquivos de apoio (condicoes, estabelecimentos, categoria) estão na mesma pasta.")
+    st.warning("Por favor, faça o upload do arquivo principal e verifique se os arquivos de apoio estão na mesma pasta.")
     st.stop()
-
 df_raw = load_excel_upload(uploaded_file)
 if df_raw is None:
     st.stop()
-
 col_map_full = {'Municipio Solicitante': ['Municipio Solicitante', 'Município Solicitante', 'Municipio'], 'Estabelecimento': ['Estabelecimento', 'Estabelecimento do Solicitante', 'Estabelecimento Solicitante', 'Unidade de Saúde'], 'Especialidade': ['Especialidade', 'Especialty', 'Specialty'], 'SolicitanteNome': ['Solicitante', 'Nome do Solicitante', 'Profissional Solicitante'], 'NomeEspecialista': ['Nome do Especialista', 'Nome do Especialista Teleconsultor', 'Especialista'], 'CBP': ['CBP', 'cbo'], 'Conduta': ['Conduta'], 'Inten.Encaminhamento': ['Inten.Encaminhamento'], 'Concluida?': ['Concluída?', 'Concluida?'], 'Data_Solicitacao': ['Data Solicitação', 'Data Solicitacao', 'Data_Solicitacao', 'Dt.Criação'], 'Data_Resposta': ['Data Resposta', 'Data_Resposta', 'Dt.1ª resposta'], 'Situação': ['Situação', 'Situacao', 'Status']}
 mapped = {canonical: find_existing(candidates, df_raw.columns) for canonical, candidates in col_map_full.items()}
 df = df_raw.rename(columns={v: k for k, v in mapped.items() if v})
-
 for dcol in ['Data_Solicitacao', 'Data_Resposta']:
     if dcol in df.columns:
         df[dcol] = pd.to_datetime(df[dcol], errors='coerce', dayfirst=True)
 if 'Concluida?' in df.columns:
     df['Concluida?'] = df['Concluida?'].astype(str).str.lower().str.strip()
-
 col_map_categoria = {'CBO': ['CBO'], 'Categoria': ['Categoria']}
 mapped_cat = {canonical: find_existing(candidates, df_categoria_raw.columns) for canonical, candidates in col_map_categoria.items()}
 df_categoria = df_categoria_raw.rename(columns={v: k for k, v in mapped_cat.items() if v})
@@ -96,27 +181,21 @@ cbo_to_categoria_map = df_categoria.set_index('CBO')['Categoria'].to_dict()
 if 'CBP' in df.columns:
     df['CBP'] = df['CBP'].astype(str).str.replace(r'\.0$', '', regex=True)
     df['Categoria Profissional'] = df['CBP'].map(cbo_to_categoria_map).fillna('Não Mapeado')
-
 col_map_condicoes = {'Municipio Solicitante': ['MUNICÍPIOS', 'Municipio Solicitante'], 'CotaTotal': ['Cota total', 'Cota Total'], 'Monitor': ['Monitor(a) de Campo Responsável', 'Monitor'], 'Macrorregiao': ['Macrorregião de Saúde'], 'Microrregiao': ['Microrregião de Saúde']}
 mapped_cond = {canonical: find_existing(candidates, df_condicoes_raw.columns) for canonical, candidates in col_map_condicoes.items()}
 df_condicoes = df_condicoes_raw.rename(columns={v: k for k, v in mapped_cond.items() if v})
-
 col_map_estab = {'Municipio Solicitante': ['Município', 'Municipio Solicitante'], 'Estabelecimento': ['Unidade de Saúde', 'Estabelecimento']}
 mapped_estab = {canonical: find_existing(candidates, df_estabelecimentos_raw.columns) for canonical, candidates in col_map_estab.items()}
 df_estabelecimentos = df_estabelecimentos_raw.rename(columns={v: k for k, v in mapped_estab.items() if v})
-
 df_estabelecimentos = pd.merge(df_estabelecimentos, df_condicoes[['Municipio Solicitante', 'CotaTotal']], on='Municipio Solicitante', how='left').fillna({'CotaTotal': 0})
-
 ano_referencia = 2024
 df_ano_ref = df[(df['Data_Solicitacao'].dt.year == ano_referencia) & (~df['Situação'].str.lower().str.contains('cancelad', na=False))].copy()
 realizado_ano_ref = df_ano_ref.groupby('Municipio Solicitante').size().reset_index(name='Realizado_AnoRef')
-
 df_estabelecimentos['Num_Estabelecimentos'] = df_estabelecimentos.groupby('Municipio Solicitante')['Estabelecimento'].transform('count')
 df_estabelecimentos = pd.merge(df_estabelecimentos, realizado_ano_ref, on='Municipio Solicitante', how='left').fillna({'Realizado_AnoRef': 0})
 df_estabelecimentos['Realizado_AnoRef'] = df_estabelecimentos['Realizado_AnoRef'].astype(int)
 df_estabelecimentos['CotaMensal_Estabelecimento'] = ((df_estabelecimentos['CotaTotal'] - df_estabelecimentos['Realizado_AnoRef']) / 12 / df_estabelecimentos['Num_Estabelecimentos']).where(df_estabelecimentos['Num_Estabelecimentos'] > 0, 0).round(2)
 df_estabelecimentos['CotaMensal_Estabelecimento'] = df_estabelecimentos['CotaMensal_Estabelecimento'].apply(lambda x: max(x, 0))
-
 cols_to_merge_final = [col for col in ['Municipio Solicitante', 'Monitor', 'Macrorregiao', 'Microrregiao'] if col in df_condicoes.columns]
 df = pd.merge(df, df_condicoes[cols_to_merge_final], on='Municipio Solicitante', how='left')
 
@@ -302,94 +381,9 @@ with col_desc2:
     else:
         st.info("Sem dados de Solicitantes para exibir.")
 
-# --- 7. DETALHAMENTO E EXPORTAÇÃO DE DADOS ---
-st.markdown("---")
-st.header("Detalhamento e Exportação de Dados")
-st.subheader("Gerador de Relatórios por Município")
-municipios_disponiveis = sorted(df_filtered_final['Municipio Solicitante'].unique())
-if not municipios_disponiveis:
-    st.info("Nenhum município com dados no período selecionado para gerar relatório.")
-else:
-    municipio_relatorio = st.selectbox("Selecione um município para o relatório detalhado:", options=municipios_disponiveis, index=None, placeholder="Escolha um município")
-    if municipio_relatorio:
-        df_sumario_relatorio = df_performance_estab_filtrado[df_performance_estab_filtrado['Municipio Solicitante'] == municipio_relatorio].copy()
-        df_detalhes_relatorio = df_filtered_final[df_filtered_final['Municipio Solicitante'] == municipio_relatorio].copy()
-        cols_summary = [col for col in ['Municipio Solicitante', 'Estabelecimento', 'CotaMensal_Estabelecimento', 'Realizado_Periodo', 'Percentual Atingido'] if col in df_sumario_relatorio.columns]
-        df_sumario_relatorio = df_sumario_relatorio[cols_summary]
-        cols_details = [col for col in ['Data_Solicitacao', 'Municipio Solicitante', 'Estabelecimento', 'Especialidade', 'SolicitanteNome', 'Categoria Profissional', 'Situação', 'Monitor', 'Conduta', 'Inten.Encaminhamento'] if col in df_detalhes_relatorio.columns]
-        df_detalhes_relatorio = df_detalhes_relatorio[cols_details]
-        excel_bytes = to_excel_report_bytes(df_sumario_relatorio, df_detalhes_relatorio)
-        st.download_button(label=f"📥 Download Relatório de {municipio_relatorio}", data=excel_bytes, file_name=f"Relatorio_{municipio_relatorio.replace(' ', '_')}.xlsx", mime="application/vnd.openxmlformats-officedocument.sheet", use_container_width=True)
-
-st.subheader("Detalhamento Geral das Teleconsultorias Filtradas")
-cols_show = [col for col in ['Data_Solicitacao', 'Municipio Solicitante', 'Estabelecimento', 'Especialidade', 'SolicitanteNome', 'Categoria Profissional', 'Situação', 'Monitor'] if col in df_filtered_final.columns]
-if not df_filtered_final.empty:
-    df_detalhe_geral = df_filtered_final[cols_show].copy()
-    df_detalhe_geral.reset_index(drop=True, inplace=True)
-    df_detalhe_geral.index += 1
-    st.dataframe(df_detalhe_geral, use_container_width=True)
-    st.download_button(label="📥 Download dos Dados Filtrados (Geral)", data=to_excel_bytes_generic(df_detalhe_geral), file_name="Relatorio_Geral_Teleconsultorias.xlsx", mime="application/vnd.openxmlformats-officedocument.sheet")
-
+# ### SEÇÃO DE EXPORTAÇÃO DE PDF COM MATPLOTLIB ###
 st.markdown("---")
 st.header("Exportar Relatório em PDF")
-
-def generate_html_for_pdf(start_date, end_date, kpis, df_perf, figures, df_spec):
-    """Gera uma string HTML completa para o relatório PDF."""
-    def fig_to_base64(fig):
-        if fig is None: return None
-        try:
-            img_bytes = fig.to_image(format="png", width=800, height=450, engine="kaleido")
-            return base64.b64encode(img_bytes).decode()
-        except Exception as e:
-            st.warning(f"Não foi possível converter um gráfico para o PDF. Erro: {e}")
-            return None
-    df_perf_formatted = df_perf.copy()
-    if 'Percentual Atingido' in df_perf_formatted.columns:
-        df_perf_formatted['Percentual Atingido'] = df_perf_formatted['Percentual Atingido'].map('{:.1f}%'.format)
-    df_perf_html = df_perf_formatted.to_html(index=True, classes='styled-table', border=0)
-    df_spec_html = df_spec.to_html(index=True, classes='styled-table', border=0) if df_spec is not None and not df_spec.empty else ""
-    html = f"""
-    <html><head><meta charset="UTF-8">
-        <style>
-            @page {{ size: A4 portrait; margin: 1.0cm; }}
-            body {{ font-family: 'Helvetica', sans-serif; color: #333; font-size: 10px;}}
-            h1 {{ text-align: center; color: #0056b3; font-size: 20px;}}
-            h2 {{ color: #0056b3; border-bottom: 1px solid #0056b3; padding-bottom: 5px; margin-top: 25px; font-size: 14px;}}
-            .periodo {{ text-align: center; font-style: italic; color: #555; }}
-            .kpi-container {{ display: flex; justify-content: space-around; padding: 10px; background-color: #f8f9fa; border-radius: 5px; margin-bottom: 20px; border: 1px solid #dee2e6; }}
-            .kpi {{ text-align: center; }}
-            .kpi-value {{ font-size: 18px; font-weight: bold; }}
-            .kpi-label {{ font-size: 10px; color: #6c757d; }}
-            .styled-table {{ border-collapse: collapse; margin: 15px 0; font-size: 8px; width: 100%; table-layout: fixed; }}
-            .styled-table thead tr {{ background-color: #0056b3; color: #ffffff; text-align: center; }}
-            .styled-table th, .styled-table td {{ padding: 6px 8px; border: 1px solid #ddd; word-wrap: break-word; text-align: left; }}
-            .styled-table td:nth-child(n+3) {{ text-align: center; }}
-            .styled-table tbody tr:nth-of-type(even) {{ background-color: #f3f3f3; }}
-            .chart-container {{ page-break-before: always; text-align: center; margin-top: 20px; }}
-            img {{ max-width: 100%; height: auto; }}
-        </style>
-    </head><body>
-        <h1>Relatório de Análise de Teleconsultorias</h1>
-        <p class="periodo">Período: {start_date.strftime('%d/%m/%Y')} a {end_date.strftime('%d/%m/%Y')}</p>
-        <h2>Indicadores Chave de Operação</h2>
-        <div class="kpi-container">{''.join([f'<div class="kpi"><div class="kpi-value">{v}</div><div class="kpi-label">{k}</div></div>' for k, v in kpis.items()])}</div>
-        <h2>Performance por Estabelecimento</h2>
-        {df_perf_html}
-    """
-    charts_html = ""
-    for title, fig_data in figures.items():
-        if fig_data is not None and fig_data.get('fig') is not None:
-            fig = fig_data['fig']
-            df_table = fig_data.get('table')
-            img_b64 = fig_to_base64(fig)
-            if img_b64:
-                charts_html += f'<div class="chart-container"><h2>{title}</h2><img src="data:image/png;base64,{img_b64}">'
-                if df_table is not None and not df_table.empty:
-                    charts_html += df_table.to_html(index=True, classes='styled-table', border=0)
-                charts_html += '</div>'
-    html += charts_html
-    html += "</body></html>"
-    return html
 
 if st.button("Gerar Relatório PDF"):
     if df_filtered_final.empty:
@@ -397,46 +391,71 @@ if st.button("Gerar Relatório PDF"):
     else:
         try:
             with st.spinner("Gerando seu relatório PDF, por favor aguarde..."):
-                kpis_for_pdf = {
-                    "Total de Consultorias": format_number(len(df_filtered_final)),
-                    "Média Resp. (h)": f"{df_filtered_final['Tempo_Resposta_Horas'].mean():.1f}" if 'Tempo_Resposta_Horas' in df_filtered_final.columns and not df_filtered_final['Tempo_Resposta_Horas'].dropna().empty else "N/D",
-                    "Concluídas (%)": f"{(df_filtered_final['Concluida?'].str.contains('sim', na=False).sum() / len(df_filtered_final) * 100):.1f}%" if 'Concluida?' in df_filtered_final.columns and len(df_filtered_final) > 0 else "0.0%",
-                    "Municípios Atendidos": df_filtered_final['Municipio Solicitante'].nunique(),
-                    "Estabelecimentos Visíveis": total_estabelecimentos_visiveis
-                }
+                pdf = PDFReport()
+                pdf.add_page()
+                pdf.chapter_title(f"Relatório do Período: {start_date.strftime('%d/%m/%Y')} a {end_date.strftime('%d/%m/%Y')}")
+
+                if not df_tabela_perf.empty:
+                    pdf.chapter_title("Tabela de Performance por Estabelecimento")
+                    df_tabela_perf_pdf = df_tabela_perf.copy()
+                    df_tabela_perf_pdf.index.name = '#'
+                    df_tabela_perf_pdf.reset_index(inplace=True)
+                    df_tabela_perf_pdf['Percentual Atingido'] = df_tabela_perf_pdf['Percentual Atingido'].apply(lambda x: f"{x:.1f}%")
+                    df_tabela_perf_pdf.rename(columns={'index': '#', 'Municipio Solicitante': 'Município', 'CotaMensal_Estabelecimento': 'Cota Mensal', 'Realizado_Periodo': 'Realizado', 'Percentual Atingido': '% Atingido'}, inplace=True)
+                    cols_pdf = ['#', 'Município', 'Estabelecimento', 'Cota Mensal', 'Realizado', '% Atingido']
+                    col_widths_pdf = [8, 32, 70, 20, 20, 25] 
+                    pdf.write_pandas_table(df_tabela_perf_pdf[cols_pdf].head(35), col_widths=col_widths_pdf)
+
+                if fig_perf is not None:
+                    if pdf.get_y() > 180: pdf.add_page() # Adiciona nova página se não houver espaço
+                    pdf.chapter_title("Comparativo de Realizado vs. Meta por Estabelecimento")
+                    img_bytes = gerar_grafico_performance_matplotlib(df_performance_estab_filtrado)
+                    pdf.image(img_bytes, w=190)
+
+                if fig_ts is not None:
+                    if pdf.get_y() > 180: pdf.add_page()
+                    pdf.chapter_title("Evolução Mensal das Teleconsultorias")
+                    img_bytes = gerar_grafico_evolucao_matplotlib(df_ts)
+                    pdf.image(img_bytes, w=190)
                 
-                if fig_perf: fig_perf.update_layout(margin=dict(l=60, r=60, t=60, b=180))
-                if fig_ts: fig_ts.update_layout(margin=dict(l=60, r=60, t=60, b=180))
-                if fig_pie: fig_pie.update_layout(margin=dict(l=20, r=60, t=60, b=180))
-                if fig_cat: fig_cat.update_layout(margin=dict(l=60, r=60, t=60, b=180))
-                if fig_sol: fig_sol.update_layout(margin=dict(l=60, r=60, t=60, b=180))
-                fig_cat_pdf, fig_sol_pdf = fig_cat, fig_sol
-                if 'Categoria Profissional' in df_filtered_final.columns and df_filtered_final['Categoria Profissional'].nunique() > 30:
-                    cat_count_pdf = df_filtered_final['Categoria Profissional'].value_counts().reset_index().head(30)
-                    fig_cat_pdf = px.bar(cat_count_pdf, x='Categoria Profissional', y='count', title='Top 30 Categorias', labels={'count':'Quantidade'}, color_discrete_sequence=['#198754'])
-                if 'SolicitanteNome' in df_filtered_final.columns and df_filtered_final['SolicitanteNome'].nunique() > 30:
-                    sol_count_pdf = df_filtered_final['SolicitanteNome'].value_counts().reset_index().head(30)
-                    fig_sol_pdf = px.bar(sol_count_pdf, x='SolicitanteNome', y='count', title='Top 30 Solicitantes', labels={'count':'Quantidade'}, color_discrete_sequence=['#6f42c1'])
+                if fig_pie is not None:
+                    if pdf.get_y() > 180: pdf.add_page()
+                    pdf.chapter_title("Distribuição por Especialidade")
+                    img_bytes = gerar_grafico_pizza_matplotlib(df_pie_data)
+                    pdf.image(img_bytes, w=180)
+                    pdf.ln(5)
+                    # Adiciona a tabela de especialidade ao PDF
+                    df_especialidade_tabela_pdf = df_especialidade_tabela.copy()
+                    df_especialidade_tabela_pdf.index.name = '#'
+                    df_especialidade_tabela_pdf.reset_index(inplace=True)
+                    df_especialidade_tabela_pdf.rename(columns={'index': '#', 'label': 'Especialidade (Média Resp. h)', 'count': 'Qtde'}, inplace=True)
+                    pdf.write_pandas_table(df_especialidade_tabela_pdf, col_widths=[10, 100, 20])
 
-                figures_for_pdf = {
-                    "Comparativo de Realizado vs. Meta": {'fig': fig_perf},
-                    "Evolução Mensal": {'fig': fig_ts},
-                    "Distribuição por Especialidade": {'fig': fig_pie, 'table': df_especialidade_tabela[['label', 'count']]},
-                    "Distribuição por Categoria": {'fig': fig_cat_pdf},
-                    "Distribuição por Solicitante": {'fig': fig_sol_pdf}
-                }
+                if fig_cat is not None:
+                    pdf.add_page()
+                    pdf.chapter_title("Distribuição por Categoria Profissional")
+                    cat_count = df_filtered_final['Categoria Profissional'].value_counts().reset_index().head(30)
+                    img_bytes = gerar_grafico_barras_matplotlib(cat_count, 'Categoria Profissional', 'count', '', '#198754')
+                    pdf.image(img_bytes, w=190)
 
-                html_content = generate_html_for_pdf(start_date, end_date, kpis_for_pdf, df_tabela_perf, figures_for_pdf, df_especialidade_tabela)
-                pdf_bytes = HTML(string=html_content).write_pdf()
+                if fig_sol is not None:
+                    pdf.add_page()
+                    pdf.chapter_title("Distribuição por Solicitante")
+                    solicitante_count = df_filtered_final['SolicitanteNome'].value_counts().reset_index().head(30)
+                    img_bytes = gerar_grafico_barras_matplotlib(solicitante_count, 'SolicitanteNome', 'count', '', '#6f42c1')
+                    pdf.image(img_bytes, w=190)
 
+                pdf_bytes = pdf.output(dest='S').encode('latin-1')
+                
                 st.download_button(
-                    label="📥 Download do Relatório PDF",
+                    label="📥 Download do Relatório PDF Final",
                     data=pdf_bytes,
                     file_name=f"Relatorio_Final_{datetime.now().strftime('%Y%m%d')}.pdf",
                     mime="application/pdf"
                 )
+
         except Exception as e:
-            st.error(f"Ocorreu um erro ao gerar o PDF com WeasyPrint. Verifique a instalação (GTK3 no Windows) e as bibliotecas. Erro: {e}")
+            st.error(f"Ocorreu um erro ao gerar o PDF. Verifique se a biblioteca 'matplotlib' está instalada. Erro: {e}")
 
 st.markdown("---")
 st.caption(f"Dashboard atualizado em {datetime.now().strftime('%d/%m/%Y às %H:%M:%S')}")

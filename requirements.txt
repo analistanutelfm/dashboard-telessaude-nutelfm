@@ -3,8 +3,7 @@ pandas
 plotly
 openpyxl
 fpdf2
-kaleido
 Pillow
-weasyprint
+matplotlib
 xlrd
 xlsxwriter

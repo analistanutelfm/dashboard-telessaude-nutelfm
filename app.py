@@ -12,13 +12,6 @@ import matplotlib
 matplotlib.use('Agg') # Usa um backend não interativo, essencial para servidores
 import matplotlib.pyplot as plt
 
-# Definir locale para formatação de números em português
-try:
-    locale.setlocale(locale.LC_ALL, 'pt_BR.UTF-8')
-except locale.Error:
-    st.warning("Locale 'pt_BR.UTF-8' não encontrado.")
-    locale.setlocale(locale.LC_ALL, '')
-
 
 # --- 2. CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(layout="wide", page_title="Dashboard de Teleconsultorias")

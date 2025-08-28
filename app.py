@@ -61,7 +61,7 @@ def fig_to_bytes(fig):
 
 # ### NOVAS FUNÇÕES PARA GERAR GRÁFICOS ESTÁTICOS PARA O PDF ###
 def gerar_grafico_performance_matplotlib(df_perf):
-    fig, ax = plt.subplots(figsize=(10, 7)) # Aumenta a altura para mais espaço
+    fig, ax = plt.subplots(figsize=(10, 7))
     bar_width = 0.4
     index = range(len(df_perf))
     
@@ -74,7 +74,7 @@ def gerar_grafico_performance_matplotlib(df_perf):
     ax.set_xticklabels(df_perf['Estabelecimento'], rotation=90, ha="right")
     ax.legend()
     ax.grid(axis='y', linestyle='--', alpha=0.7)
-    fig.tight_layout() # Ajuste automático de layout
+    fig.tight_layout()
     return fig_to_bytes(fig)
 
 def gerar_grafico_evolucao_matplotlib(df_ts):
@@ -398,9 +398,9 @@ if st.button("Gerar Relatório PDF"):
                     cols_pdf = ['#', 'Município', 'Estabelecimento', 'Cota Mensal', 'Realizado', '% Atingido']
                     col_widths_pdf = [8, 32, 70, 20, 20, 25] 
                     pdf.write_pandas_table(df_tabela_perf_pdf[cols_pdf].head(35), col_widths=col_widths_pdf)
-
+                
                 if fig_perf is not None:
-                    if pdf.get_y() > 180: pdf.add_page() # Adiciona nova página se não houver espaço
+                    if pdf.get_y() > 180: pdf.add_page()
                     pdf.chapter_title("Comparativo de Realizado vs. Meta por Estabelecimento")
                     img_bytes = gerar_grafico_performance_matplotlib(df_performance_estab_filtrado)
                     pdf.image(img_bytes, w=190)
@@ -417,12 +417,16 @@ if st.button("Gerar Relatório PDF"):
                     img_bytes = gerar_grafico_pizza_matplotlib(df_pie_data)
                     pdf.image(img_bytes, w=180)
                     pdf.ln(5)
-                    # Adiciona a tabela de especialidade ao PDF
+                    
+                    # ### CORREÇÃO: SELECIONA APENAS AS COLUNAS CORRETAS PARA A TABELA ###
                     df_especialidade_tabela_pdf = df_especialidade_tabela.copy()
                     df_especialidade_tabela_pdf.index.name = '#'
                     df_especialidade_tabela_pdf.reset_index(inplace=True)
                     df_especialidade_tabela_pdf.rename(columns={'index': '#', 'label': 'Especialidade (Média Resp. h)', 'count': 'Qtde'}, inplace=True)
-                    pdf.write_pandas_table(df_especialidade_tabela_pdf, col_widths=[10, 100, 20])
+                    
+                    # Garante que a tabela tenha o mesmo número de colunas que as larguras definidas
+                    cols_para_escrever = ['#', 'Especialidade (Média Resp. h)', 'Qtde']
+                    pdf.write_pandas_table(df_especialidade_tabela_pdf[cols_para_escrever], col_widths=[10, 100, 20])
 
                 if fig_cat is not None:
                     pdf.add_page()

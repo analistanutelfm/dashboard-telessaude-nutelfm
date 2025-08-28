@@ -13,6 +13,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from PIL import Image # Pillow para manipulação de imagem
 
+
 # --- 2. CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(layout="wide", page_title="Dashboard de Teleconsultorias")
 st.title("Dashboard de Gestão e Análise de Teleconsultorias")
@@ -386,7 +387,14 @@ if st.button("Gerar Relatório PDF"):
 
                 if not df_tabela_perf.empty:
                     pdf.chapter_title("Tabela de Performance por Estabelecimento")
-                    # ... (código da tabela idêntico) ...
+                    df_tabela_perf_pdf = df_tabela_perf.copy()
+                    df_tabela_perf_pdf.index.name = '#'
+                    df_tabela_perf_pdf.reset_index(inplace=True)
+                    df_tabela_perf_pdf['Percentual Atingido'] = df_tabela_perf_pdf['Percentual Atingido'].apply(lambda x: f"{x:.1f}%")
+                    df_tabela_perf_pdf.rename(columns={'index': '#', 'Municipio Solicitante': 'Município', 'CotaMensal_Estabelecimento': 'Cota Mensal', 'Realizado_Periodo': 'Realizado', 'Percentual Atingido': '% Atingido'}, inplace=True)
+                    cols_pdf = ['#', 'Município', 'Estabelecimento', 'Cota Mensal', 'Realizado', '% Atingido']
+                    col_widths_pdf = [8, 32, 70, 20, 20, 25] 
+                    pdf.write_pandas_table(df_tabela_perf_pdf[cols_pdf].head(35), col_widths=col_widths_pdf)
                 
                 # ### CORREÇÃO APLICADA AQUI ###
                 # Usamos a biblioteca Pillow (Image) para abrir a imagem em memória antes de passá-la ao PDF.
@@ -413,8 +421,12 @@ if st.button("Gerar Relatório PDF"):
                     pdf.image(pil_img, w=180)
                     pdf.ln(5)
                     df_especialidade_tabela_pdf = df_especialidade_tabela.copy()
-                    # ... (código da tabela de especialidade idêntico) ...
-                    
+                    df_especialidade_tabela_pdf.index.name = '#'
+                    df_especialidade_tabela_pdf.reset_index(inplace=True)
+                    df_especialidade_tabela_pdf.rename(columns={'index': '#', 'label': 'Especialidade (Média Resp. h)', 'count': 'Qtde'}, inplace=True)
+                    cols_para_escrever = ['#', 'Especialidade (Média Resp. h)', 'Qtde']
+                    pdf.write_pandas_table(df_especialidade_tabela_pdf[cols_para_escrever], col_widths=[10, 100, 20])
+
                 if fig_cat is not None:
                     pdf.add_page()
                     pdf.chapter_title("Distribuição por Categoria Profissional")
@@ -443,7 +455,6 @@ if st.button("Gerar Relatório PDF"):
         except Exception as e:
             st.error(f"Ocorreu um erro ao gerar o PDF. Verifique se a biblioteca 'matplotlib' está instalada. Erro: {e}")
 
-# ... (Restante do código final sem alterações) ...
 
 st.markdown("---")
 st.caption(f"Dashboard atualizado em {datetime.now().strftime('%d/%m/%Y às %H:%M:%S')}")

@@ -7,11 +7,8 @@ import io
 from datetime import datetime
 import os
 import locale
-from fpdf import FPDF
-import matplotlib
-matplotlib.use('Agg') # Usa um backend não interativo, essencial para servidores
-import matplotlib.pyplot as plt
-from PIL import Image
+import base64
+from weasyprint import HTML, CSS
 
 # Definir locale para formatação de números em português
 try:
@@ -20,107 +17,50 @@ except locale.Error:
     st.warning("Locale 'pt_BR.UTF-8' não encontrado.")
     locale.setlocale(locale.LC_ALL, '')
 
-
 # --- 2. CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(layout="wide", page_title="Dashboard de Teleconsultorias")
 st.title("Dashboard de Gestão e Análise de Teleconsultorias")
 
-# --- 3. FUNÇÕES AUXILIARES E CLASSE PDF ---
-
-class PDFReport(FPDF):
-    def header(self):
-        self.set_font('Arial', 'B', 15)
-        self.cell(0, 10, 'Relatório de Análise de Teleconsultorias', 0, 1, 'C')
-        self.ln(10)
-
-    def footer(self):
-        self.set_y(-15)
-        self.set_font('Arial', 'I', 8)
-        hoje = datetime.now().strftime('%d/%m/%Y às %H:%M:%S')
-        self.cell(0, 10, f'Página {self.page_no()} | Gerado em: {hoje}', 0, 0, 'C')
-
-    def chapter_title(self, title):
-        self.set_font('Arial', 'B', 12)
-        self.cell(0, 10, title, 0, 1, 'L')
-        self.ln(4)
-
-    def write_pandas_table(self, df_table, col_widths):
-        self.set_fill_color(224, 235, 255)
-        self.set_font('Arial', 'B', 8)
-        for i, header in enumerate(df_table.columns):
-            self.cell(col_widths[i], 7, str(header), 1, 0, 'C', 1)
-        self.ln()
-        self.set_font('Arial', '', 7)
-        for index, row in df_table.iterrows():
-            if self.get_y() > 270:
-                self.add_page()
-            for i, item in enumerate(row):
-                self.cell(col_widths[i], 6, str(item), 1)
-            self.ln()
-        self.ln(8)
-
-def fig_to_bytes(fig):
-    """Converte uma figura Matplotlib para bytes em memória."""
-    buf = io.BytesIO()
-    fig.savefig(buf, format='png', dpi=150, bbox_inches='tight')
-    plt.close(fig)
-    buf.seek(0)
-    return buf
-
-def gerar_grafico_performance_matplotlib(df_perf):
-    fig, ax = plt.subplots(figsize=(10, 7))
-    bar_width = 0.4
-    index = range(len(df_perf))
-    ax.bar(index, df_perf['Realizado_Periodo'], bar_width, label='Realizado no Período', color='#0d6efd')
-    ax.bar([i + bar_width for i in index], df_perf['CotaMensal_Estabelecimento'], bar_width, label='Cota Mensal', color='#adb5bd')
-    ax.set_ylabel('Quantidade')
-    ax.set_title('Comparativo de Realizado vs. Meta por Estabelecimento')
-    ax.set_xticks([i + bar_width / 2 for i in index])
-    ax.set_xticklabels(df_perf['Estabelecimento'], rotation=90, ha="right")
-    ax.legend()
-    ax.grid(axis='y', linestyle='--', alpha=0.7)
-    fig.tight_layout()
-    return fig_to_bytes(fig)
-
-def gerar_grafico_evolucao_matplotlib(df_ts):
-    fig, ax = plt.subplots(figsize=(10, 5))
-    ax.plot(df_ts['Mês'], df_ts['Quantidade'], marker='o', linestyle='-', color='#fd7e14')
-    for i, txt in enumerate(df_ts['Quantidade']):
-        ax.annotate(txt, (df_ts['Mês'][i], df_ts['Quantidade'][i]), textcoords="offset points", xytext=(0,5), ha='center')
-    ax.set_ylabel('Quantidade')
-    ax.set_title('Evolução Mensal das Teleconsultorias')
-    plt.xticks(rotation=45, ha="right")
-    ax.grid(True, linestyle='--', alpha=0.6)
-    fig.tight_layout()
-    return fig_to_bytes(fig)
-
-def gerar_grafico_pizza_matplotlib(df_pie):
-    fig, ax = plt.subplots(figsize=(10, 7))
-    wedges, texts, autotexts = ax.pie(df_pie['count'], autopct='%1.1f%%', startangle=90, colors=plt.cm.Pastel1.colors)
-    ax.axis('equal')
-    ax.legend(wedges, df_pie['label'], title="Especialidades", loc="center left", bbox_to_anchor=(1, 0, 0.5, 1))
-    ax.set_title('Distribuição por Especialidade e Média de Resposta (h)')
-    return fig_to_bytes(fig)
-
-def gerar_grafico_barras_matplotlib(df_data, col_x, col_y, title, color):
-    fig, ax = plt.subplots(figsize=(10, 7))
-    ax.bar(df_data[col_x], df_data[col_y], color=color)
-    ax.set_ylabel('Quantidade')
-    ax.set_title(title)
-    plt.xticks(rotation=90, ha="right")
-    ax.grid(axis='y', linestyle='--', alpha=0.7)
-    fig.tight_layout()
-    return fig_to_bytes(fig)
-
+# --- 3. FUNÇÕES AUXILIARES ---
+# ### ALTERAÇÃO: Função de upload agora trata .xls e .xlsx de forma diferente ###
 @st.cache_data
-def load_excel_upload(file):
-    try: return pd.read_excel(file)
-    except Exception as e: st.error(f"Erro ao ler arquivo Excel do upload: {e}"); return None
+def load_excel_upload(uploaded_file):
+    """
+    Lê um arquivo Excel a partir de um upload, tratando .xls e .xlsx.
+    Para .xlsx, "limpa" o arquivo em memória para lidar com corrupções.
+    Para .xls, usa o motor xlrd diretamente.
+    """
+    try:
+        file_name = uploaded_file.name
+        if file_name.endswith('.xlsx'):
+            # Método robusto para arquivos .xlsx
+            st.write("Lendo arquivo .xlsx...")
+            buffer = io.BytesIO(uploaded_file.getvalue())
+            workbook = load_workbook(buffer)
+            cleaned_buffer = io.BytesIO()
+            workbook.save(cleaned_buffer)
+            cleaned_buffer.seek(0)
+            df = pd.read_excel(cleaned_buffer, engine='openpyxl')
+            return df
+        elif file_name.endswith('.xls'):
+            # Método direto para arquivos .xls antigos
+            st.write("Lendo arquivo .xls...")
+            df = pd.read_excel(uploaded_file, engine='xlrd')
+            return df
+        else:
+            st.error("Formato de arquivo não suportado. Por favor, use .xls ou .xlsx.")
+            return None
+    except Exception as e:
+        st.error(f"Erro ao ler arquivo Excel do upload: {e}")
+        return None
+
 @st.cache_data
 def load_local_data(path):
     if not os.path.exists(path): st.error(f"ERRO: Arquivo '{path}' não encontrado."); return None
     try: return pd.read_excel(path)
     except Exception as e: st.error(f"Erro ao ler arquivo local '{path}': {e}"); return None
+
+# ... (Restante do código sem alterações) ...
 def find_existing(col_list, df_cols):
     for candidate in col_list:
         for c in df_cols:
@@ -150,7 +90,7 @@ def to_excel_report_bytes(df_summary, df_details):
 def format_number(n):
     if pd.isna(n): return 'N/D'
     try: return locale.format_string("%d", int(n), grouping=True)
-    except (ValueError, TypeError): return n
+    except (ValueError, TypeError): return str(n)
 
 # --- 4. CARREGAMENTO E PREPARAÇÃO DOS DADOS ---
 df_condicoes_raw = load_local_data('condicoes.xlsx')
@@ -158,7 +98,7 @@ df_estabelecimentos_raw = load_local_data('estabelecimentos.xlsx')
 df_categoria_raw = load_local_data('categoria.xlsx')
 uploaded_file = st.file_uploader("Faça upload do arquivo Excel principal de teleconsultorias (xls/xlsx):", type=["xls", "xlsx"])
 if uploaded_file is None or df_condicoes_raw is None or df_estabelecimentos_raw is None or df_categoria_raw is None:
-    st.warning("Por favor, faça o upload do arquivo principal e verifique se os arquivos de apoio estão na mesma pasta.")
+    st.warning("Por favor, faça o upload do relatório de teleconsultorias, filtrando sempre o período de setembro de 2024 até a data atual. Não")
     st.stop()
 df_raw = load_excel_upload(uploaded_file)
 if df_raw is None:
@@ -256,6 +196,8 @@ col5.metric("Total de Estabelecimentos", format_number(total_estabelecimentos_vi
 
 st.markdown("---")
 st.subheader("Análise de Fluxo de Encaminhamentos")
+casos_ubs, total_encaminhados, evitados, intencao_encaminhar = 0, 0, 0, 0
+perc_ubs, perc_enc, perc_evitados = 0.0, 0.0, 0.0
 if 'Conduta' in df_filtered_final.columns and 'Inten.Encaminhamento' in df_filtered_final.columns:
     col_ubs, col_enc, col_evit = st.columns(3)
     df_filtered_final['Conduta'] = df_filtered_final['Conduta'].astype(str).str.lower()
@@ -266,15 +208,13 @@ if 'Conduta' in df_filtered_final.columns and 'Inten.Encaminhamento' in df_filte
     total_conduta = casos_ubs + total_encaminhados
     if total_conduta > 0:
         perc_ubs, perc_enc = (casos_ubs / total_conduta * 100), (total_encaminhados / total_conduta * 100)
-        col_ubs.metric("Casos Mantidos na UBS", f"{casos_ubs} ({perc_ubs:.1f}%)")
-        col_enc.metric("Casos Encaminhados", f"{total_encaminhados} ({perc_enc:.1f}%)")
-    else:
-        col_ubs.metric("Casos Mantidos na UBS", "0 (0.0%)"); col_enc.metric("Casos Encaminhados", "0 (0.0%)")
+    col_ubs.metric("Casos Mantidos na UBS", f"{format_number(casos_ubs)} ({perc_ubs:.1f}%)")
+    col_enc.metric("Casos Encaminhados", f"{format_number(total_encaminhados)} ({perc_enc:.1f}%)")
     intencao_encaminhar = df_filtered_final['Inten.Encaminhamento'].astype(str).str.lower().str.strip().isin(['sim']).sum()
     if intencao_encaminhar > 0:
         evitados = intencao_encaminhar - total_encaminhados
         perc_evitados = (evitados / intencao_encaminhar) * 100
-        col_evit.metric("Encaminhamentos Evitados", f"{evitados} ({perc_evitados:.1f}%)")
+        col_evit.metric("Encaminhamentos Evitados", f"{format_number(evitados)} ({perc_evitados:.1f}%)")
     else:
         col_evit.metric("Encaminhamentos Evitados", "N/D")
 else:
@@ -291,9 +231,9 @@ if 'CotaMensal_Estabelecimento' in df_estabelecimentos.columns:
     st.subheader("Gráfico Realizado vs. Meta por Estabelecimento")
     if not df_performance_estab_filtrado.empty:
         fig_perf = go.Figure()
-        fig_perf.add_trace(go.Bar(name='Realizado no Período', x=df_performance_estab_filtrado['Estabelecimento'], y=df_performance_estab_filtrado['Realizado_Periodo'], marker_color='#0d6efd'))
+        fig_perf.add_trace(go.Bar(name='Realizado no Período', x=df_performance_estab_filtrado['Estabelecimento'], y=df_performance_estab_filtrado['Realizado_Periodo'], marker_color="#33ac47"))
         fig_perf.add_trace(go.Bar(name='Cota Mensal', x=df_performance_estab_filtrado['Estabelecimento'], y=df_performance_estab_filtrado['CotaMensal_Estabelecimento'], marker_color='#adb5bd'))
-        fig_perf.update_layout(barmode='group', xaxis_tickangle=-45, title_text='Comparativo de Realizado vs. Meta por Estabelecimento')
+        fig_perf.update_layout(barmode='group', xaxis_tickangle=-90, title_text='Comparativo de Realizado vs. Meta por Estabelecimento')
         st.plotly_chart(fig_perf, use_container_width=True)
     else:
         st.info("Nenhum estabelecimento encontrado para os filtros selecionados.")
@@ -301,7 +241,7 @@ if 'CotaMensal_Estabelecimento' in df_estabelecimentos.columns:
     df_performance_estab_filtrado['Percentual Atingido'] = (df_performance_estab_filtrado['Realizado_Periodo'] / df_performance_estab_filtrado['CotaMensal_Estabelecimento'] * 100).where(df_performance_estab_filtrado['CotaMensal_Estabelecimento'] > 0, 0)
     def style_performance(v):
         if pd.isna(v): return ''
-        return 'background-color: #f8d7da; color: #721c24;' if v < 50 else ('background-color: #fff3cd; color: #856404;' if v < 90 else 'background-color: #d4edda; color: #155724;')
+        return 'background-color: #f8d7da; color: #721c24;' if v < 50 else ('background-color: #fff3cd; color: #856404;' if v < 90 else 'background-color: #d4edda; color: #33ac47;')
     cols_perf = ['Municipio Solicitante', 'Estabelecimento', 'CotaMensal_Estabelecimento', 'Realizado_Periodo', 'Percentual Atingido']
     df_tabela_perf = df_performance_estab_filtrado[cols_perf].copy()
     df_tabela_perf.reset_index(drop=True, inplace=True)
@@ -325,9 +265,10 @@ if not df_evolucao.empty:
     date_range_full = pd.date_range(start=start_date_evol_dt, end=end_date_evol_dt, freq='MS')
     df_ts = df_evolucao.set_index('Data_Solicitacao').resample('MS').size().reindex(date_range_full, fill_value=0).reset_index(name='Quantidade')
     df_ts.rename(columns={'index': 'Data_Solicitacao'}, inplace=True)
-    df_ts['Mês'] = df_ts['Data_Solicitacao'].dt.strftime('%Y-%m')
-    fig_ts = px.line(df_ts, x='Mês', y='Quantidade', text='Quantidade', title='Evolução Mensal das Teleconsultorias', markers=True, color_discrete_sequence=['#fd7e14'])
+    df_ts['Mês'] = df_ts['Data_Solicitacao'].dt.strftime('%b/%Y').str.lower()
+    fig_ts = px.line(df_ts, x='Mês', y='Quantidade', text='Quantidade', title='Evolução Mensal das Teleconsultorias', markers=True, color_discrete_sequence=['#33ac47'])
     fig_ts.update_traces(textposition='top center')
+    fig_ts.update_xaxes(type='category')
     st.plotly_chart(fig_ts, use_container_width=True)
 else:
     st.info("Sem dados de evolução para o período e filtros selecionados.")
@@ -356,7 +297,7 @@ with col_desc1:
     st.subheader("Distribuição por Categoria Profissional")
     if 'Categoria Profissional' in df_filtered_final.columns and not df_filtered_final['Categoria Profissional'].dropna().empty:
         cat_count = df_filtered_final['Categoria Profissional'].value_counts().reset_index()
-        fig_cat = px.bar(cat_count, x='Categoria Profissional', y='count', title='Teleconsultorias por Categoria', labels={'count':'Quantidade'}, color_discrete_sequence=['#198754'])
+        fig_cat = px.bar(cat_count, x='Categoria Profissional', y='count', title='Teleconsultorias por Categoria', labels={'count':'Quantidade'}, color_discrete_sequence=['#33ac47'])
         st.plotly_chart(fig_cat, use_container_width=True)
     else:
         st.info("Sem dados de Categoria Profissional para exibir.")
@@ -364,7 +305,7 @@ with col_desc2:
     st.subheader("Distribuição por Solicitante")
     if 'SolicitanteNome' in df_filtered_final.columns and not df_filtered_final['SolicitanteNome'].dropna().empty:
         solicitante_count = df_filtered_final['SolicitanteNome'].value_counts().reset_index()
-        fig_sol = px.bar(solicitante_count, x='SolicitanteNome', y='count', title='Teleconsultorias por Solicitante', labels={'count':'Quantidade', 'SolicitanteNome': 'Nome do Solicitante'}, color_discrete_sequence=['#6f42c1'])
+        fig_sol = px.bar(solicitante_count, x='SolicitanteNome', y='count', title='Teleconsultorias por Solicitante', labels={'count':'Quantidade', 'SolicitanteNome': 'Nome do Solicitante'}, color_discrete_sequence=['#33ac47'])
         st.plotly_chart(fig_sol, use_container_width=True)
     else:
         st.info("Sem dados de Solicitantes para exibir.")
@@ -398,16 +339,17 @@ if not df_filtered_final.empty:
     st.download_button(label="📥 Download dos Dados Filtrados (Geral)", data=to_excel_bytes_generic(df_detalhe_geral), file_name="Relatorio_Geral_Teleconsultorias.xlsx", mime="application/vnd.openxmlformats-officedocument.sheet")
 
 
+# ### SEÇÃO DE EXPORTAÇÃO DE PDF COM WEASYPRINT ###
 st.markdown("---")
 st.header("Exportar Relatório em PDF")
 
-def generate_html_for_pdf(start_date, end_date, kpis, df_perf, figures, df_spec):
+def generate_html_for_pdf(start_date, end_date, kpis_dict, observacao_fluxo, df_perf, figures, df_spec):
     """Gera uma string HTML completa para o relatório PDF."""
     def fig_to_base64(fig):
         if fig is None: return None
         try:
-            fig.update_layout(margin=dict(l=40, r=40, t=60, b=180))
-            img_bytes = fig.to_image(format="png", width=800, height=500, engine="kaleido")
+            fig.update_layout(height=450, margin=dict(l=60, r=60, t=60, b=250))
+            img_bytes = fig.to_image(format="png", width=800, engine="kaleido")
             return base64.b64encode(img_bytes).decode()
         except Exception as e:
             st.warning(f"Não foi possível converter um gráfico para o PDF. Erro: {e}")
@@ -417,20 +359,29 @@ def generate_html_for_pdf(start_date, end_date, kpis, df_perf, figures, df_spec)
         df_perf_formatted['Percentual Atingido'] = df_perf_formatted['Percentual Atingido'].map('{:.1f}%'.format)
     df_perf_html = df_perf_formatted.to_html(index=True, classes='styled-table', border=0)
     df_spec_html = df_spec.to_html(index=True, classes='styled-table', border=0) if df_spec is not None and not df_spec.empty else ""
+    kpi_html_rows = ""
+    for i, kpi_row in enumerate(kpis_dict):
+        kpi_html_rows += '<div class="kpi-container">'
+        for k, v in kpi_row.items():
+            kpi_html_rows += f'<div class="kpi"><div class="kpi-value">{v}</div><div class="kpi-label">{k}</div></div>'
+        kpi_html_rows += '</div>'
+        if i == 2 and observacao_fluxo:
+            kpi_html_rows += f'<div class="observacao">{observacao_fluxo}</div>'
     html = f"""
     <html><head><meta charset="UTF-8">
         <style>
-            @page {{ size: A4 portrait; margin: 1.0cm; }}
+            @page {{ size: A4 portrait; margin: 1.5cm; }}
             body {{ font-family: 'Helvetica', sans-serif; color: #333; font-size: 10px;}}
-            h1 {{ text-align: center; color: #0056b3; font-size: 20px;}}
-            h2 {{ color: #0056b3; border-bottom: 1px solid #0056b3; padding-bottom: 5px; margin-top: 25px; font-size: 14px;}}
+            h1 {{ text-align: center; color: #33ac47; font-size: 20px;}}
+            h2 {{ color: #33ac47; border-bottom: 1px solid #33ac47; padding-bottom: 5px; margin-top: 25px; font-size: 14px;}}
             .periodo {{ text-align: center; font-style: italic; color: #555; }}
-            .kpi-container {{ display: flex; justify-content: space-around; padding: 10px; background-color: #f8f9fa; border-radius: 5px; margin-bottom: 20px; border: 1px solid #dee2e6; }}
-            .kpi {{ text-align: center; }}
+            .kpi-container {{ display: flex; flex-wrap: wrap; justify-content: space-around; padding: 8px; background-color: #f8f9fa; border-radius: 5px; margin-bottom: 5px; border: 1px solid #dee2e6; }}
+            .kpi {{ text-align: center; padding: 5px 10px; flex-grow: 1; }}
             .kpi-value {{ font-size: 18px; font-weight: bold; }}
             .kpi-label {{ font-size: 10px; color: #6c757d; }}
+            .observacao {{ font-size: 9px; font-style: italic; color: #6c757d; text-align: center; padding: 10px; margin-top: -5px; border: 1px dashed #ccc; border-radius: 5px; background-color: #f8f9fa;}}
             .styled-table {{ border-collapse: collapse; margin: 15px 0; font-size: 8px; width: 100%; table-layout: fixed; }}
-            .styled-table thead tr {{ background-color: #0056b3; color: #ffffff; text-align: center; }}
+            .styled-table thead tr {{ background-color: #33ac47; color: #ffffff; text-align: center; }}
             .styled-table th, .styled-table td {{ padding: 6px 8px; border: 1px solid #ddd; word-wrap: break-word; text-align: left; }}
             .styled-table td:nth-child(n+3) {{ text-align: center; }}
             .styled-table tbody tr:nth-of-type(even) {{ background-color: #f3f3f3; }}
@@ -440,8 +391,8 @@ def generate_html_for_pdf(start_date, end_date, kpis, df_perf, figures, df_spec)
     </head><body>
         <h1>Relatório de Análise de Teleconsultorias</h1>
         <p class="periodo">Período: {start_date.strftime('%d/%m/%Y')} a {end_date.strftime('%d/%m/%Y')}</p>
-        <h2>Indicadores Chave de Operação</h2>
-        <div class="kpi-container">{''.join([f'<div class="kpi"><div class="kpi-value">{v}</div><div class="kpi-label">{k}</div></div>' for k, v in kpis.items()])}</div>
+        <h2>Indicadores Chave do Período</h2>
+        {kpi_html_rows}
         <h2>Performance por Estabelecimento</h2>
         {df_perf_html}
     """
@@ -466,33 +417,38 @@ if st.button("Gerar Relatório PDF"):
     else:
         try:
             with st.spinner("Gerando seu relatório PDF, por favor aguarde..."):
-                kpis_for_pdf = {
-                    "Total de Consultorias": format_number(len(df_filtered_final)),
-                    "Média Resp. (h)": f"{df_filtered_final['Tempo_Resposta_Horas'].mean():.1f}" if 'Tempo_Resposta_Horas' in df_filtered_final.columns and not df_filtered_final['Tempo_Resposta_Horas'].dropna().empty else "N/D",
-                    "Concluídas (%)": f"{(df_filtered_final['Concluida?'].str.contains('sim', na=False).sum() / len(df_filtered_final) * 100):.1f}%" if 'Concluida?' in df_filtered_final.columns and len(df_filtered_final) > 0 else "0.0%",
-                    "Municípios Atendidos": df_filtered_final['Municipio Solicitante'].nunique(),
-                    "Estabelecimentos Visíveis": total_estabelecimentos_visiveis
-                }
+                observacao_fluxo_pdf = ""
+                if intencao_encaminhar > 0:
+                    observacao_fluxo_pdf = (f"<b>Observação:</b> De um total de {format_number(intencao_encaminhar)} solicitações com intenção de encaminhamento, " f"{format_number(total_encaminhados)} foram efetivamente encaminhadas, " f"resultando em <b>{format_number(evitados)} encaminhamentos evitados</b>.")
+                
+                kpis_for_pdf_rows = [
+                    {"Total de Consultorias": format_number(len(df_filtered_final)), "Média Resp. (h)": f"{df_filtered_final['Tempo_Resposta_Horas'].mean():.1f}" if 'Tempo_Resposta_Horas' in df_filtered_final.columns and not df_filtered_final['Tempo_Resposta_Horas'].dropna().empty else "N/D", "Concluídas": f"{format_number(concluido)} ({percentual:.1f}%)" if 'Concluida?' in df_filtered_final.columns and not df_filtered_final.empty else "N/D", "Estabelecimentos": total_estabelecimentos_visiveis},
+                    {"Meta Mensal Total": format_number(df_performance_estab_filtrado['CotaMensal_Estabelecimento'].sum()), "Meta Mensal Média/Estab.": f"{df_performance_estab_filtrado['CotaMensal_Estabelecimento'].mean():.1f}"},
+                    {"Casos Mantidos na UBS": f"{format_number(casos_ubs)} ({perc_ubs:.1f}%)", "Casos Encaminhados": f"{format_number(total_encaminhados)} ({perc_enc:.1f}%)", "Encaminhamentos Evitados": f"{format_number(evitados)} ({perc_evitados:.1f}%)"}
+                ]
                 
                 fig_cat_pdf, fig_sol_pdf = fig_cat, fig_sol
                 if 'Categoria Profissional' in df_filtered_final.columns and df_filtered_final['Categoria Profissional'].nunique() > 30:
                     cat_count_pdf = df_filtered_final['Categoria Profissional'].value_counts().reset_index().head(30)
-                    fig_cat_pdf = px.bar(cat_count_pdf, x='Categoria Profissional', y='count', title='Top 30 Categorias', labels={'count':'Quantidade'}, color_discrete_sequence=['#198754'])
+                    fig_cat_pdf = px.bar(cat_count_pdf, x='Categoria Profissional', y='count', title='Top 30 Categorias', labels={'count':'Quantidade'}, color_discrete_sequence=['#33ac47'])
                 if 'SolicitanteNome' in df_filtered_final.columns and df_filtered_final['SolicitanteNome'].nunique() > 30:
                     sol_count_pdf = df_filtered_final['SolicitanteNome'].value_counts().reset_index().head(30)
-                    fig_sol_pdf = px.bar(sol_count_pdf, x='SolicitanteNome', y='count', title='Top 30 Solicitantes', labels={'count':'Quantidade'}, color_discrete_sequence=['#6f42c1'])
+                    fig_sol_pdf = px.bar(sol_count_pdf, x='SolicitanteNome', y='count', title='Top 30 Solicitantes', labels={'count':'Quantidade'}, color_discrete_sequence=['#33ac47'])
+                
+                df_spec_for_pdf = df_especialidade_tabela[['label', 'count']].rename(columns={'label': 'Especialidade (Média Resp. h)', 'count': 'Quantidade'})
 
                 figures_for_pdf = {
                     "Comparativo de Realizado vs. Meta": {'fig': fig_perf},
                     "Evolução Mensal": {'fig': fig_ts},
-                    "Distribuição por Especialidade": {'fig': fig_pie, 'table': df_especialidade_tabela[['label', 'count']]},
+                    "Distribuição por Especialidade": {'fig': fig_pie, 'table': df_spec_for_pdf},
                     "Distribuição por Categoria": {'fig': fig_cat_pdf},
                     "Distribuição por Solicitante": {'fig': fig_sol_pdf}
                 }
-
-                html_content = generate_html_for_pdf(start_date, end_date, kpis_for_pdf, df_tabela_perf, figures_for_pdf, df_especialidade_tabela)
+                
+                html_content = generate_html_for_pdf(start_date_dt, end_date_dt, kpis_for_pdf_rows, observacao_fluxo_pdf, df_tabela_perf, figures_for_pdf, df_especialidade_tabela)
+                
                 pdf_bytes = HTML(string=html_content).write_pdf()
-
+                
                 st.download_button(
                     label="📥 Download do Relatório PDF",
                     data=pdf_bytes,

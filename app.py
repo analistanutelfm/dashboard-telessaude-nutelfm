@@ -311,8 +311,10 @@ if not df['Data_Solicitacao'].dropna().empty:
         st.subheader("Distribuição por Categoria Profissional")
         if 'Categoria Profissional' in df_filtered_final.columns and not df_filtered_final['Categoria Profissional'].dropna().empty:
             cat_count = df_filtered_final['Categoria Profissional'].value_counts().reset_index()
-            fig_cat = px.bar(cat_count, x='Categoria Profissional', y='count', title='Teleconsultorias por Categoria', labels={'count':'Quantidade'}, color_discrete_sequence=['#198754'])
-            st.plotly_chart(fig_cat, use_container_width=True)
+            # Renomeia as colunas na ordem correta: a primeira ('index') vira 'Categoria', a segunda vira 'Quantidade'
+            cat_count.columns = ['Categoria Profissional', 'Quantidade']
+            # Agora, usamos os nomes corretos para criar o gráfico
+            fig_cat = px.bar(cat_count, x='Categoria Profissional', y='Quantidade', title='Teleconsultorias por Categoria', labels={'Quantidade':'Quantidade'}, color_discrete_sequence=['#198754'])
         else:
             st.info("Sem dados de Categoria Profissional para exibir.")
     with col_desc2:

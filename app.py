@@ -10,53 +10,26 @@ import locale
 import base64
 from weasyprint import HTML, CSS
 from openpyxl import load_workbook
-import plotly.io as pio
-
-# <-- CORREÇÃO: Configuração global para o Kaleido, compatível com Plotly v5.5.0 e o ambiente do servidor.
-# No entanto, a abordagem mais robusta é configurar via `engine_config` diretamente na chamada `to_image`.
-# Para a combinação de bibliotecas que definimos, a melhor prática é a configuração global abaixo,
-# que é compatível com a versão mais antiga do Streamlit que estamos usando.
-try:
-    pio.kaleido.scope.chromium_args = ("--headless", "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage")
-except AttributeError:
-    # Fallback para versões mais recentes do Plotly, caso o requirements.txt mude no futuro.
-    pass
 
 # --- 2. CONFIGURAÇÃO DA PÁGINA ---
+# <-- MODERNO: set_page_config deve ser o primeiro comando Streamlit
 st.set_page_config(layout="wide", page_title="Dashboard de Teleconsultorias")
-st.title("Dashboard de Gestão e Análise de Teleconsultorias")
-
-# Definir locale para formatação de números em português
-try:
-    locale.setlocale(locale.LC_ALL, 'pt_BR.UTF-8')
-except locale.Error:
-    st.warning("Locale 'pt_BR.UTF-8' não encontrado.")
-    locale.setlocale(locale.LC_ALL, '')
 
 # --- 3. FUNÇÕES AUXILIARES ---
-# <-- CORREÇÃO: Usar st.cache, compatível com Streamlit v1.10.0
-@st.cache(allow_output_mutation=True)
+# <-- MODERNO: Usando @st.cache_data para cache de dados
+@st.cache_data
 def load_excel_upload(uploaded_file):
     """Lê um arquivo Excel a partir de um upload, tratando .xls e .xlsx."""
     try:
         file_name = uploaded_file.name
-        if file_name.endswith('.xlsx'):
-            buffer = io.BytesIO(uploaded_file.getvalue())
-            # Usar load_workbook para limpar, se necessário.
-            # Para arquivos simples, pd.read_excel(buffer) pode ser suficiente.
-            df = pd.read_excel(buffer, engine='openpyxl')
-            return df
-        elif file_name.endswith('.xls'):
-            df = pd.read_excel(uploaded_file, engine='xlrd')
-            return df
-        else:
-            st.error("Formato de arquivo não suportado. Por favor, use .xls ou .xlsx.")
-            return None
+        engine = 'openpyxl' if file_name.endswith('.xlsx') else 'xlrd'
+        df = pd.read_excel(uploaded_file, engine=engine)
+        return df
     except Exception as e:
         st.error(f"Erro ao ler arquivo Excel do upload: {e}")
         return None
 
-@st.cache(allow_output_mutation=True)
+@st.cache_data
 def load_local_data(path):
     if not os.path.exists(path):
         st.error(f"ERRO: Arquivo '{path}' não encontrado.")
@@ -92,9 +65,9 @@ def to_excel_report_bytes(df_summary, df_details):
         df_details.to_excel(writer, index=False, sheet_name='Detalhes_Consultorias')
         for sheet_name, df_sheet in [('Resumo_Performance', df_summary), ('Detalhes_Consultorias', df_details)]:
             worksheet = writer.sheets[sheet_name]
-            for idx, col in enumerate(df_sheet.columns):
-                series = df_sheet[col]
-                if not series.empty:
+            if not df_sheet.empty:
+                for idx, col in enumerate(df_sheet.columns):
+                    series = df_sheet[col]
                     max_len = max(series.astype(str).map(len).max(), len(str(col))) + 2
                     worksheet.set_column(idx, idx, max_len)
     return output.getvalue()
@@ -106,7 +79,19 @@ def format_number(n):
     except (ValueError, TypeError):
         return n
 
-# --- 4. CARREGAMENTO E PREPARAÇÃO DOS DADOS ---
+# --- RENDERIZAÇÃO PRINCIPAL ---
+st.title("Dashboard de Gestão e Análise de Teleconsultorias")
+
+try:
+    locale.setlocale(locale.LC_ALL, 'pt_BR.UTF-8')
+except locale.Error:
+    st.warning("Locale 'pt_BR.UTF-8' não encontrado. A formatação de números pode não estar correta.")
+    try:
+        locale.setlocale(locale.LC_ALL, '')
+    except locale.Error:
+        st.warning("Não foi possível definir um locale padrão.")
+
+# Carregamento dos dados auxiliares
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 df_condicoes_raw = load_local_data(os.path.join(BASE_DIR, 'condicoes.xlsx'))
 df_estabelecimentos_raw = load_local_data(os.path.join(BASE_DIR, 'estabelecimentos.xlsx'))
@@ -114,15 +99,16 @@ df_categoria_raw = load_local_data(os.path.join(BASE_DIR, 'categoria.xlsx'))
 
 uploaded_file = st.file_uploader("Faça upload do arquivo Excel principal de teleconsultorias (xls/xlsx):", type=["xls", "xlsx"])
 
-if uploaded_file is None or df_condicoes_raw is None or df_estabelecimentos_raw is None or df_categoria_raw is None:
-    st.warning("Por favor, faça o upload do relatório de teleconsultorias.")
+if uploaded_file is None:
+    st.info("Por favor, faça o upload do relatório de teleconsultorias para começar a análise.")
     st.stop()
 
 df_raw = load_excel_upload(uploaded_file)
-if df_raw is None:
+if df_raw is None or df_condicoes_raw is None or df_estabelecimentos_raw is None or df_categoria_raw is None:
+    st.error("Falha ao carregar um ou mais arquivos de dados. Verifique se os arquivos locais (condicoes.xlsx, estabelecimentos.xlsx, categoria.xlsx) estão na mesma pasta do script.")
     st.stop()
 
-# Mapeamento e Limpeza de Dados
+# Mapeamento de colunas e preparação dos DataFrames
 col_map_full = {'Municipio Solicitante': ['Municipio Solicitante', 'Município Solicitante', 'Municipio'], 'Estabelecimento': ['Estabelecimento', 'Estabelecimento do Solicitante', 'Estabelecimento Solicitante', 'Unidade de Saúde'], 'Especialidade': ['Especialidade', 'Especialty', 'Specialty'], 'SolicitanteNome': ['Solicitante', 'Nome do Solicitante', 'Profissional Solicitante'], 'NomeEspecialista': ['Nome do Especialista', 'Nome do Especialista Teleconsultor', 'Especialista'], 'CBP': ['CBP', 'cbo'], 'Conduta': ['Conduta'], 'Inten.Encaminhamento': ['Inten.Encaminhamento'], 'Concluida?': ['Concluída?', 'Concluida?'], 'Data_Solicitacao': ['Data Solicitação', 'Data Solicitacao', 'Data_Solicitacao', 'Dt.Criação'], 'Data_Resposta': ['Data Resposta', 'Data_Resposta', 'Dt.1ª resposta'], 'Situação': ['Situação', 'Situacao', 'Status']}
 mapped = {canonical: find_existing(candidates, df_raw.columns) for canonical, candidates in col_map_full.items()}
 df = df_raw.rename(columns={v: k for k, v in mapped.items() if v})
@@ -133,15 +119,14 @@ for dcol in ['Data_Solicitacao', 'Data_Resposta']:
 if 'Concluida?' in df.columns:
     df['Concluida?'] = df['Concluida?'].astype(str).str.lower().str.strip()
 
-if df_categoria_raw is not None:
-    col_map_categoria = {'CBO': ['CBO'], 'Categoria': ['Categoria']}
-    mapped_cat = {canonical: find_existing(candidates, df_categoria_raw.columns) for canonical, candidates in col_map_categoria.items()}
-    df_categoria = df_categoria_raw.rename(columns={v: k for k, v in mapped_cat.items() if v})
-    if 'CBO' in df_categoria.columns and 'CBP' in df.columns:
-        df_categoria['CBO'] = df_categoria['CBO'].astype(str).str.replace(r'\.0$', '', regex=True)
-        cbo_to_categoria_map = df_categoria.set_index('CBO')['Categoria'].to_dict()
-        df['CBP'] = df['CBP'].astype(str).str.replace(r'\.0$', '', regex=True)
-        df['Categoria Profissional'] = df['CBP'].map(cbo_to_categoria_map).fillna('Não Mapeado')
+col_map_categoria = {'CBO': ['CBO'], 'Categoria': ['Categoria']}
+mapped_cat = {canonical: find_existing(candidates, df_categoria_raw.columns) for canonical, candidates in col_map_categoria.items()}
+df_categoria = df_categoria_raw.rename(columns={v: k for k, v in mapped_cat.items() if v})
+if 'CBO' in df_categoria.columns and 'CBP' in df.columns:
+    df_categoria['CBO'] = df_categoria['CBO'].astype(str).str.replace(r'\.0$', '', regex=True)
+    cbo_to_categoria_map = df_categoria.set_index('CBO')['Categoria'].to_dict()
+    df['CBP'] = df['CBP'].astype(str).str.replace(r'\.0$', '', regex=True)
+    df['Categoria Profissional'] = df['CBP'].map(cbo_to_categoria_map).fillna('Não Mapeado')
 
 col_map_condicoes = {'Municipio Solicitante': ['MUNICÍPIOS', 'Municipio Solicitante'], 'CotaTotal': ['Cota total', 'Cota Total'], 'Monitor': ['Monitor(a) de Campo Responsável', 'Monitor'], 'Macrorregiao': ['Macrorregião de Saúde'], 'Microrregiao': ['Microrregião de Saúde']}
 mapped_cond = {canonical: find_existing(candidates, df_condicoes_raw.columns) for canonical, candidates in col_map_condicoes.items()}
@@ -168,23 +153,21 @@ cols_to_merge_final = [col for col in ['Municipio Solicitante', 'Monitor', 'Macr
 if 'Municipio Solicitante' in df.columns and 'Municipio Solicitante' in df_condicoes.columns:
     df = pd.merge(df, df_condicoes[cols_to_merge_final], on='Municipio Solicitante', how='left')
 
-
-# --- 5. BARRA LATERAL DE FILTROS ---
+# --- BARRA LATERAL DE FILTROS ---
 st.sidebar.header("Filtros")
 if 'Data_Solicitacao' in df.columns and not df['Data_Solicitacao'].dropna().empty:
     min_date_val = df['Data_Solicitacao'].dropna().min().date()
     max_date_val = df['Data_Solicitacao'].dropna().max().date()
-    
+
     st.sidebar.markdown("##### Período de Análise")
     start_date = st.sidebar.date_input("Data de Início", min_date_val, min_value=min_date_val, max_value=max_date_val)
     end_date = st.sidebar.date_input("Data de Fim", max_date_val, min_value=start_date, max_value=max_date_val)
-    
+
     start_date_dt = pd.to_datetime(start_date)
     end_date_dt = pd.to_datetime(end_date)
     
     df_filtered_final = df[df['Data_Solicitacao'].between(start_date_dt, end_date_dt)].copy()
 
-    # Filtros Dinâmicos
     filters_config = [
         {'column': 'Situação', 'label': 'Status'},
         {'column': 'Monitor', 'label': 'Monitor de Campo'},
@@ -202,32 +185,36 @@ if 'Data_Solicitacao' in df.columns and not df['Data_Solicitacao'].dropna().empt
         if f['column'] in df_filtered_final.columns:
             options = get_filter_options(df_filtered_final, f['column'])
             if options:
-                selection = st.sidebar.multiselect(f['label'], options=options, key=f['column'])
+                selection = st.sidebar.multiselect(
+                    f['label'], 
+                    options=options, 
+                    key=f['column'], 
+                    placeholder=f"Filtrar por {f['label']}..." # <-- MODERNO: Usando placeholder
+                )
                 if selection:
                     df_filtered_final = df_filtered_final[df_filtered_final[f['column']].isin(selection)]
 else:
-    df_filtered_final = df.copy() # Mostra todos os dados se não houver coluna de data
+    df_filtered_final = df.copy()
 
-# --- 6. CORPO PRINCIPAL DO DASHBOARD ---
+# --- CORPO PRINCIPAL DO DASHBOARD ---
 # Inicialização de variáveis para evitar erros
 fig_perf, fig_ts, fig_pie, fig_cat, fig_sol = None, None, None, None, None
-df_tabela_perf = pd.DataFrame()
-df_performance_estab_filtrado = pd.DataFrame()
-concluido = 0
-percentual = 0.0
+df_tabela_perf, df_especialidade_tabela = pd.DataFrame(), pd.DataFrame()
+concluido, percentual = 0, 0.0
 casos_ubs, total_encaminhados, evitados, intencao_encaminhar = 0, 0, 0, 0
 perc_ubs, perc_enc, perc_evitados = 0.0, 0.0, 0.0
+df_performance_estab_filtrado = pd.DataFrame()
 
 if not df_filtered_final.empty:
-    municipios_visiveis = df_filtered_final['Municipio Solicitante'].unique()
+    municipios_visiveis = df_filtered_final['Municipio Solicitante'].unique() if 'Municipio Solicitante' in df_filtered_final else []
     estabelecimentos_visiveis_df = df_estabelecimentos[df_estabelecimentos['Municipio Solicitante'].isin(municipios_visiveis)]
     total_estabelecimentos_visiveis = estabelecimentos_visiveis_df['Estabelecimento'].nunique()
-    municipios_atendidos = df_filtered_final['Municipio Solicitante'].nunique()
+    municipios_atendidos = len(municipios_visiveis)
 
     st.subheader("Indicadores Chave de Operação (KPIs)")
     col1, col2, col3, col4, col5 = st.columns(5)
     col1.metric("Total de Teleconsultorias", format_number(len(df_filtered_final)))
-    if 'Data_Resposta' in df_filtered_final.columns and not df_filtered_final['Data_Resposta'].dropna().empty:
+    if 'Data_Resposta' in df_filtered_final.columns and 'Data_Solicitacao' in df_filtered_final.columns and not df_filtered_final['Data_Resposta'].dropna().empty:
         df_filtered_final['Tempo_Resposta_Horas'] = (df_filtered_final['Data_Resposta'] - df_filtered_final['Data_Solicitacao']).dt.total_seconds() / 3600
         col2.metric("Média (horas) resposta", f"{df_filtered_final['Tempo_Resposta_Horas'].mean():.1f}")
     else:
@@ -274,26 +261,29 @@ if not df_filtered_final.empty:
         df_performance_estab_filtrado['Realizado_Periodo'] = df_performance_estab_filtrado['Realizado_Periodo'].astype(int)
         st.subheader("Gráfico Realizado vs. Meta por Estabelecimento")
         if not df_performance_estab_filtrado.empty:
-            fig_perf = go.Figure()
-            fig_perf.add_trace(go.Bar(name='Realizado no Período', x=df_performance_estab_filtrado['Estabelecimento'], y=df_performance_estab_filtrado['Realizado_Periodo']))
-            fig_perf.add_trace(go.Bar(name='Cota Mensal', x=df_performance_estab_filtrado['Estabelecimento'], y=df_performance_estab_filtrado['CotaMensal_Estabelecimento']))
-            fig_perf.update_layout(barmode='group', xaxis_tickangle=-90, title_text='Comparativo por Estabelecimento')
+            fig_perf = px.bar(df_performance_estab_filtrado, x='Estabelecimento', y=['Realizado_Periodo', 'CotaMensal_Estabelecimento'], 
+                              title='Comparativo de Realizado vs. Meta por Estabelecimento', barmode='group')
             st.plotly_chart(fig_perf, use_container_width=True)
         st.subheader("Tabela de Performance por Estabelecimento")
-        df_performance_estab_filtrado['Percentual Atingido'] = (df_performance_estab_filtrado['Realizado_Periodo'] / df_performance_estab_filtrado['CotaMensal_Estabelecimento'] * 100).where(df_performance_estab_filtrado['CotaMensal_Estabelecimento'] > 0, 0)
+        if 'CotaMensal_Estabelecimento' in df_performance_estab_filtrado.columns and df_performance_estab_filtrado['CotaMensal_Estabelecimento'].sum() > 0:
+             df_performance_estab_filtrado['Percentual Atingido'] = (df_performance_estab_filtrado['Realizado_Periodo'] / df_performance_estab_filtrado['CotaMensal_Estabelecimento'] * 100).fillna(0)
+        else:
+             df_performance_estab_filtrado['Percentual Atingido'] = 0.0
+
         def style_performance(v):
             if pd.isna(v): return ''
             return 'background-color: #f8d7da;' if v < 50 else ('background-color: #fff3cd;' if v < 90 else 'background-color: #d4edda;')
         cols_perf = ['Municipio Solicitante', 'Estabelecimento', 'CotaMensal_Estabelecimento', 'Realizado_Periodo', 'Percentual Atingido']
         df_tabela_perf = df_performance_estab_filtrado[cols_perf].copy()
-        st.dataframe(df_tabela_perf.style.applymap(style_performance, subset=['Percentual Atingido']).format({'Percentual Atingido': '{:.1f}%', 'CotaMensal_Estabelecimento': '{:.2f}'}))
+        st.dataframe(df_tabela_perf.style.apply(lambda s: s.map(style_performance), subset=['Percentual Atingido']).format({'Percentual Atingido': '{:.1f}%', 'CotaMensal_Estabelecimento': '{:.2f}'}), use_container_width=True)
 
     st.markdown("---")
     st.header("Análises Descritivas")
     st.subheader("Evolução Mensal")
     df_ts = df_filtered_final.set_index('Data_Solicitacao').resample('MS').size().reset_index(name='Quantidade')
     df_ts['Mês'] = df_ts['Data_Solicitacao'].dt.strftime('%b/%Y')
-    fig_ts = px.line(df_ts, x='Mês', y='Quantidade', title='Evolução Mensal das Teleconsultorias', markers=True)
+    fig_ts = px.line(df_ts, x='Mês', y='Quantidade', title='Evolução Mensal das Teleconsultorias', markers=True, text='Quantidade')
+    fig_ts.update_traces(textposition='top center')
     st.plotly_chart(fig_ts, use_container_width=True)
 
     st.subheader("Distribuição por Especialidade")
@@ -310,48 +300,54 @@ if not df_filtered_final.empty:
         if 'Categoria Profissional' in df_filtered_final.columns:
             cat_count = df_filtered_final['Categoria Profissional'].value_counts().reset_index()
             cat_count.columns = ['Categoria Profissional', 'Quantidade']
-            fig_cat = px.bar(cat_count, x='Categoria Profissional', y='Quantidade', title='Teleconsultorias por Categoria')
+            fig_cat = px.bar(cat_count, x='Categoria Profissional', y='Quantidade', title='Teleconsultorias por Categoria', text_auto=True)
             st.plotly_chart(fig_cat, use_container_width=True)
     with col_desc2:
         st.subheader("Distribuição por Solicitante")
         if 'SolicitanteNome' in df_filtered_final.columns:
-            solicitante_count = df_filtered_final['SolicitanteNome'].value_counts().reset_index()
+            solicitante_count = df_filtered_final['SolicitanteNome'].value_counts().nlargest(20).reset_index()
             solicitante_count.columns = ['SolicitanteNome', 'Quantidade']
-            fig_sol = px.bar(solicitante_count, x='SolicitanteNome', y='Quantidade', title='Teleconsultorias por Solicitante')
+            fig_sol = px.bar(solicitante_count, x='SolicitanteNome', y='Quantidade', title='Top 20 Solicitantes', text_auto=True)
             st.plotly_chart(fig_sol, use_container_width=True)
 
-    # --- 7. DETALHAMENTO E EXPORTAÇÃO ---
+    # --- DETALHAMENTO E EXPORTAÇÃO ---
     st.markdown("---")
     st.header("Detalhamento e Exportação")
     if 'Municipio Solicitante' in df_filtered_final.columns:
         st.subheader("Gerador de Relatórios por Município")
-        placeholder = "Escolha um município..."
-        municipios_disponiveis = [placeholder] + sorted(df_filtered_final['Municipio Solicitante'].unique())
-        municipio_relatorio = st.selectbox("Relatório detalhado por município:", options=municipios_disponiveis)
-        if municipio_relatorio != placeholder:
+        # <-- MODERNO: Usando index=None e placeholder
+        municipio_relatorio = st.selectbox(
+            "Selecione um município para o relatório detalhado:",
+            options=sorted(df_filtered_final['Municipio Solicitante'].unique()),
+            index=None,
+            placeholder="Escolha um município..."
+        )
+        if municipio_relatorio:
             df_sumario = df_performance_estab_filtrado[df_performance_estab_filtrado['Municipio Solicitante'] == municipio_relatorio]
             df_detalhes = df_filtered_final[df_filtered_final['Municipio Solicitante'] == municipio_relatorio]
             st.download_button(
                 label=f"📥 Download Relatório de {municipio_relatorio}",
                 data=to_excel_report_bytes(df_sumario, df_detalhes),
-                file_name=f"Relatorio_{municipio_relatorio.replace(' ', '_')}.xlsx"
+                file_name=f"Relatorio_{municipio_relatorio.replace(' ', '_')}.xlsx",
+                use_container_width=True # <-- MODERNO: Usando use_container_width
             )
 
     st.subheader("Dados Gerais Filtrados")
     cols_show = [col for col in ['Data_Solicitacao', 'Municipio Solicitante', 'Estabelecimento', 'Especialidade', 'SolicitanteNome', 'Categoria Profissional', 'Situação', 'Monitor'] if col in df_filtered_final.columns]
-    st.dataframe(df_filtered_final[cols_show])
-    st.download_button(label="📥 Download Dados Filtrados", data=to_excel_bytes_generic(df_filtered_final[cols_show]), file_name="Relatorio_Geral.xlsx")
+    st.dataframe(df_filtered_final[cols_show], use_container_width=True) # <-- MODERNO: Usando use_container_width
+    st.download_button(label="📥 Download Dados Filtrados", data=to_excel_bytes_generic(df_filtered_final[cols_show]), file_name="Relatorio_Geral.xlsx", use_container_width=True) # <-- MODERNO: Usando use_container_width
 
-    # --- 8. GERAÇÃO DE PDF ---
+    # --- GERAÇÃO DE PDF ---
     st.markdown("---")
     st.header("Exportar Relatório em PDF")
 
     def generate_html_for_pdf(start_date, end_date, kpis_dict, observacao_fluxo, df_perf, figures):
-        """Gera uma string HTML completa para o relatório PDF."""
         def fig_to_base64(fig):
             if fig is None: return None
             try:
-                img_bytes = fig.to_image(format="png", width=800)
+                # <-- MODERNO: Usando engine_config para passar argumentos
+                engine_config = {'chromium_args': ['--no-sandbox', '--headless', '--disable-gpu', '--disable-dev-shm-usage']}
+                img_bytes = fig.to_image(format="png", width=900, scale=1.5, engine_config=engine_config)
                 return base64.b64encode(img_bytes).decode()
             except Exception as e:
                 st.error(f"Erro ao converter gráfico para o PDF: {e}")
@@ -366,14 +362,16 @@ if not df_filtered_final.empty:
         if observacao_fluxo:
             kpi_html += f'<div class="observacao">{observacao_fluxo}</div>'
 
+        # (O CSS e HTML do template continuam os mesmos)
         html = f"""
         <html><head><meta charset="UTF-8">
             <style>
                 body {{ font-family: 'Helvetica', sans-serif; }} h1, h2 {{ color: #33ac47; }}
-                .styled-table {{ border-collapse: collapse; width: 100%; }}
-                .styled-table th, .styled-table td {{ border: 1px solid #ddd; padding: 8px; }}
+                /* Estilos melhorados para o PDF */
+                .styled-table {{ border-collapse: collapse; width: 100%; font-size: 9px; }}
+                .styled-table th, .styled-table td {{ border: 1px solid #ddd; padding: 6px; text-align: left;}}
                 .styled-table th {{ background-color: #33ac47; color: white; }}
-                .chart-container {{ page-break-before: always; text-align: center; margin-top: 20px; }}
+                .chart-container {{ page-break-inside: avoid; text-align: center; margin-top: 25px; }}
                 img {{ max-width: 100%; }}
             </style>
         </head><body>
@@ -406,17 +404,18 @@ if not df_filtered_final.empty:
                 "Evolução Mensal": fig_ts,
                 "Distribuição por Especialidade": fig_pie,
                 "Distribuição por Categoria": fig_cat,
-                "Distribuição por Solicitante": fig_sol
+                "Top 20 Solicitantes": fig_sol
             }
 
-            html_content = generate_html_for_pdf(start_date, end_date, kpis, obs, df_tabela_perf, figures_for_pdf)
+            html_content = generate_html_for_pdf(start_date_dt, end_date_dt, kpis, obs, df_tabela_perf, figures_for_pdf)
             pdf_bytes = HTML(string=html_content).write_pdf()
             
             st.download_button(
                 label="📥 Download do Relatório PDF",
                 data=pdf_bytes,
                 file_name=f"Relatorio_{datetime.now().strftime('%Y%m%d')}.pdf",
-                mime="application/pdf"
+                mime="application/pdf",
+                use_container_width=True # <-- MODERNO: Usando use_container_width
             )
 
 st.caption(f"Atualizado em {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")

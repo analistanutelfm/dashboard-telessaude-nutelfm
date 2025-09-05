@@ -2,9 +2,6 @@
 FROM python:3.11-slim
 
 # 2. Dependências de Sistema: Usamos um comando mais robusto.
-#    - DEBIAN_FRONTEND=noninteractive: Evita que a instalação peça qualquer input.
-#    - Adicionamos o repositório 'contrib' para encontrar pacotes de fontes.
-#    - Pré-aceitamos a licença das fontes da Microsoft para uma instalação automática.
 RUN apt-get update && \
     apt-get install -y gnupg wget && \
     echo "deb http://deb.debian.org/debian bookworm contrib" >> /etc/apt/sources.list && \
@@ -15,7 +12,7 @@ RUN apt-get update && \
     git \
     libpango-1.0-0 \
     libpangoft2-1.0-0 \
-    libgdk-pixbuf2.0-0 \
+    libgdk-pixbuf-xlib-2.0-0 \
     libnss3 \
     libatk1.0-0 \
     libatk-bridge2.0-0 \

@@ -11,17 +11,17 @@ import base64
 from weasyprint import HTML, CSS
 from openpyxl import load_workbook
 
+# --- 2. CONFIGURAÇÃO DA PÁGINA ---
+st.set_page_config(layout="wide", page_title="Dashboard de Teleconsultorias")
+st.title("Dashboard de Gestão e Análise de Teleconsultorias")
+
 # Definir locale para formatação de números em português
 try:
     locale.setlocale(locale.LC_ALL, 'pt_BR.UTF-8')
 except locale.Error:
     st.warning("Locale 'pt_BR.UTF-8' não encontrado.")
     locale.setlocale(locale.LC_ALL, '')
-
-# --- 2. CONFIGURAÇÃO DA PÁGINA ---
-st.set_page_config(layout="wide", page_title="Dashboard de Teleconsultorias")
-st.title("Dashboard de Gestão e Análise de Teleconsultorias")
-
+    
 # --- 3. FUNÇÕES AUXILIARES ---
 @st.cache_data
 def load_excel_upload(uploaded_file):

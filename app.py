@@ -359,8 +359,9 @@ if not df['Data_Solicitacao'].dropna().empty:
         def fig_to_base64(fig):
             if fig is None: return None
             try:
-                fig.update_layout(height=450, margin=dict(l=60, r=20, t=50, b=180))
-                img_bytes = fig.to_image(format="png", width=800, engine="kaleido")
+                # Esta linha DESATIVA a sandbox, resolvendo o erro no Linux
+                engine_config = {'chromium_args': ['--no-sandbox', '--headless']}
+                img_bytes = fig.to_image(format="png", width=800, engine_config=engine_config)
                 return base64.b64encode(img_bytes).decode()
             except Exception as e:
                 st.warning(f"Não foi possível converter um gráfico para o PDF. Erro: {e}")

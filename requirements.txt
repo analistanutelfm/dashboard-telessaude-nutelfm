@@ -1,8 +1,8 @@
-streamlit
-pandas
-plotly
+streamlit==1.38.0
+pandas==2.2.2
+plotly==5.22.0
+kaleido==0.2.1
+weasyprint==62.5
 openpyxl
-xlrd
 xlsxwriter
-weasyprint
-kaleido
+xlrd

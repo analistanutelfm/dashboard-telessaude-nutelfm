@@ -257,7 +257,7 @@ if not df['Data_Solicitacao'].dropna().empty:
         df_tabela_perf = df_performance_estab_filtrado[cols_perf].copy()
         df_tabela_perf.reset_index(drop=True, inplace=True)
         df_tabela_perf.index += 1
-        st.dataframe(df_tabela_perf.style.applymap(style_performance, subset=['Percentual Atingido']).format({'Percentual Atingido': '{:.1f}%', 'CotaMensal_Estabelecimento': '{:.2f}'}), use_container_width=True)
+        st.dataframe(df_tabela_perf.style.applymap(style_performance, subset=['Percentual Atingido']).format({'Percentual Atingido': '{:.1f}%', 'CotaMensal_Estabelecimento': '{:.2f}'}))
     else:
         st.warning("A Análise de Performance não pode ser exibida.")
 
@@ -300,7 +300,8 @@ if not df['Data_Solicitacao'].dropna().empty:
         df_especialidade_tabela = df_pie_data.copy()
         df_especialidade_tabela.reset_index(drop=True, inplace=True)
         df_especialidade_tabela.index += 1
-        st.dataframe(df_especialidade_tabela[['label', 'count']].rename(columns={'label': 'Especialidade (Média de Resposta)', 'count': 'Quantidade'}), use_container_width=True)
+        st.dataframe(df_especialidade_tabela[['label', 'count']].rename(columns={'label': 'Especialidade (Média de Resposta)', 'count': 'Quantidade'}))
+
     else:
         st.info("Sem dados de Especialidade para exibir.")
     col_desc1, col_desc2 = st.columns(2)
@@ -346,7 +347,7 @@ if not df['Data_Solicitacao'].dropna().empty:
         df_detalhe_geral = df_filtered_final[cols_show].copy()
         df_detalhe_geral.reset_index(drop=True, inplace=True)
         df_detalhe_geral.index += 1
-        st.dataframe(df_detalhe_geral, use_container_width=True)
+        st.dataframe(df_detalhe_geral)
         st.download_button(label="📥 Download dos Dados Filtrados (Geral)", data=to_excel_bytes_generic(df_detalhe_geral), file_name="Relatorio_Geral_Teleconsultorias.xlsx", mime="application/vnd.openxmlformats-officedocument.sheet")
 
 

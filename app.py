@@ -335,7 +335,7 @@ if not df['Data_Solicitacao'].dropna().empty:
     if not municipios_disponiveis:
         st.info("Nenhum município com dados no período selecionado para gerar relatório.")
     else:
-        municipio_relatorio = st.selectbox("Selecione um município para o relatório detalhado:", options=municipios_disponiveis, index=None, placeholder="Escolha um município")
+        municipio_relatorio = st.selectbox("Selecione um município para o relatório detalhado:", options=municipios_disponiveis, index=None)
         if municipio_relatorio:
             df_sumario_relatorio = df_performance_estab_filtrado[df_performance_estab_filtrado['Municipio Solicitante'] == municipio_relatorio].copy()
             df_detalhes_relatorio = df_filtered_final[df_filtered_final['Municipio Solicitante'] == municipio_relatorio].copy()

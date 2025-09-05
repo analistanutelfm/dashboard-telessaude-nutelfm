@@ -11,6 +11,12 @@ import base64
 from weasyprint import HTML, CSS
 from openpyxl import load_workbook
 
+import plotly.io as pio # Adicione esta importação
+# ... outras importações ...
+
+# CONFIGURAÇÃO PARA PLOTLY V4
+pio.kaleido.scope.chromium_args = ("--headless", "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage")
+
 # Definir locale para formatação de números em português
 try:
     locale.setlocale(locale.LC_ALL, 'pt_BR.UTF-8')
@@ -361,7 +367,7 @@ if not df['Data_Solicitacao'].dropna().empty:
             try:
                 # Esta linha DESATIVA a sandbox, resolvendo o erro no Linux
                 engine_config = {'chromium_args': ['--no-sandbox', '--headless']}
-                img_bytes = fig.to_image(format="png", width=800, engine_config={'chromium_args': ['--no-sandbox', '--headless', '--disable-gpu', '--disable-dev-shm-usage']})
+                img_bytes = fig.to_image(format="png", width=800)
                 return base64.b64encode(img_bytes).decode()
             except Exception as e:
                 st.warning(f"Não foi possível converter um gráfico para o PDF. Erro: {e}")

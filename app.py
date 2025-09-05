@@ -1,3 +1,18 @@
+# ----- CÓDIGO DE DIAGNÓSTICO -----
+import streamlit as st
+import sys
+import plotly
+
+st.warning(f"""
+    **INFORMAÇÕES DE DIAGNÓSTICO DO AMBIENTE:**
+
+    - **Executável Python:** `{sys.executable}`
+    - **Versão do Plotly:** `{plotly.__version__}`
+    - **Localização do Plotly:** `{plotly.__file__}`
+""")
+# -----------------------------------
+
+
 # --- 1. IMPORTAÇÃO DAS BIBLIOTECAS ---
 import streamlit as st
 import pandas as pd

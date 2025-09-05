@@ -11,12 +11,6 @@ import base64
 from weasyprint import HTML, CSS
 from openpyxl import load_workbook
 
-import plotly.io as pio # Adicione esta importação
-# ... outras importações ...
-
-# CONFIGURAÇÃO PARA PLOTLY V4
-pio.kaleido.scope.chromium_args = ("--headless", "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage")
-
 # Definir locale para formatação de números em português
 try:
     locale.setlocale(locale.LC_ALL, 'pt_BR.UTF-8')

@@ -1,18 +1,21 @@
-# 1. Imagem Base: Começamos com uma imagem oficial e leve do Python 3.11.
+# 1. Imagem Base
 FROM python:3.11-slim
 
-# 2. Dependências de Sistema: Usamos um comando mais robusto.
-RUN apt-get update && \
-    apt-get install -y gnupg wget && \
-    echo "deb http://deb.debian.org/debian bookworm contrib" >> /etc/apt/sources.list && \
-    apt-get update && \
-    echo ttf-mscorefonts-installer msttcorefonts/accepted-mscorefonts-eula select true | debconf-set-selections && \
-    apt-get install -y --no-install-recommends \
+# 2. Configura o locale pt_BR.UTF-8
+RUN apt-get update && apt-get install -y locales && \
+    sed -i -e 's/# pt_BR.UTF-8 UTF-8/pt_BR.UTF-8 UTF-8/' /etc/locale.gen && \
+    dpkg-reconfigure --frontend=noninteractive locales
+ENV LANG pt_BR.UTF-8
+ENV LANGUAGE pt_BR:pt
+ENV LC_ALL pt_BR.UTF-8
+
+# 3. Dependências de Sistema
+RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     git \
     libpango-1.0-0 \
     libpangoft2-1.0-0 \
-    libgdk-pixbuf-xlib-2.0-0 \
+    libgdk-pixbuf2.0-0 \
     libnss3 \
     libatk1.0-0 \
     libatk-bridge2.0-0 \
@@ -27,21 +30,20 @@ RUN apt-get update && \
     libatspi2.0-0 \
     fonts-liberation \
     fonts-dejavu \
-    ttf-mscorefonts-installer \
     && rm -rf /var/lib/apt/lists/*
 
-# 3. Diretório de Trabalho
+# 4. Diretório de Trabalho
 WORKDIR /app
 
-# 4. Copiamos e Instalamos as Dependências Python
+# 5. Dependências Python
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 5. Copiamos o Restante da Aplicação
+# 6. Código da Aplicação
 COPY . .
 
-# 6. Expondo a Porta
+# 7. Expondo a Porta
 EXPOSE 8501
 
-# 7. Comando de Execução
+# 8. Comando de Execução
 CMD ["streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0"]

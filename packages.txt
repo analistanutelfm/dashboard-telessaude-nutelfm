@@ -11,3 +11,4 @@ libasound2t64
 libx11-xcb1
 libxss1
 fonts-liberation
+chromium-browser

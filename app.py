@@ -1,18 +1,3 @@
-# ----- CÓDIGO DE DIAGNÓSTICO -----
-import streamlit as st
-import sys
-import plotly
-
-st.warning(f"""
-    **INFORMAÇÕES DE DIAGNÓSTICO DO AMBIENTE:**
-
-    - **Executável Python:** `{sys.executable}`
-    - **Versão do Plotly:** `{plotly.__version__}`
-    - **Localização do Plotly:** `{plotly.__file__}`
-""")
-# -----------------------------------
-
-
 # --- 1. IMPORTAÇÃO DAS BIBLIOTECAS ---
 import streamlit as st
 import pandas as pd
@@ -375,10 +360,7 @@ if not df['Data_Solicitacao'].dropna().empty:
             if fig is None: return None
             try:
                 fig.update_layout(height=450, margin=dict(l=60, r=20, t=50, b=180))
-
-                # Adicione o engine_config para passar os argumentos do Chromium
-                engine_config = {'chromium_args': ['--no-sandbox', '--headless']}
-                img_bytes = fig.to_image(format="png", width=800, engine="kaleido", engine_config=engine_config)
+                img_bytes = fig.to_image(format="png", width=800, engine="kaleido")
                 return base64.b64encode(img_bytes).decode()
             except Exception as e:
                 st.warning(f"Não foi possível converter um gráfico para o PDF. Erro: {e}")

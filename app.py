@@ -12,11 +12,9 @@ from weasyprint import HTML, CSS
 from openpyxl import load_workbook
 
 # --- 2. CONFIGURAÇÃO DA PÁGINA ---
-# <-- MODERNO: set_page_config deve ser o primeiro comando Streamlit
 st.set_page_config(layout="wide", page_title="Dashboard de Teleconsultorias")
 
 # --- 3. FUNÇÕES AUXILIARES ---
-# <-- MODERNO: Usando @st.cache_data para cache de dados
 @st.cache_data
 def load_excel_upload(uploaded_file):
     """Lê um arquivo Excel a partir de um upload, tratando .xls e .xlsx."""
@@ -91,7 +89,6 @@ except locale.Error:
     except locale.Error:
         st.warning("Não foi possível definir um locale padrão.")
 
-# Carregamento dos dados auxiliares
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 df_condicoes_raw = load_local_data(os.path.join(BASE_DIR, 'condicoes.xlsx'))
 df_estabelecimentos_raw = load_local_data(os.path.join(BASE_DIR, 'estabelecimentos.xlsx'))
@@ -105,10 +102,9 @@ if uploaded_file is None:
 
 df_raw = load_excel_upload(uploaded_file)
 if df_raw is None or df_condicoes_raw is None or df_estabelecimentos_raw is None or df_categoria_raw is None:
-    st.error("Falha ao carregar um ou mais arquivos de dados. Verifique se os arquivos locais (condicoes.xlsx, estabelecimentos.xlsx, categoria.xlsx) estão na mesma pasta do script.")
+    st.error("Falha ao carregar um ou mais arquivos de dados.")
     st.stop()
 
-# Mapeamento de colunas e preparação dos DataFrames
 col_map_full = {'Municipio Solicitante': ['Municipio Solicitante', 'Município Solicitante', 'Municipio'], 'Estabelecimento': ['Estabelecimento', 'Estabelecimento do Solicitante', 'Estabelecimento Solicitante', 'Unidade de Saúde'], 'Especialidade': ['Especialidade', 'Especialty', 'Specialty'], 'SolicitanteNome': ['Solicitante', 'Nome do Solicitante', 'Profissional Solicitante'], 'NomeEspecialista': ['Nome do Especialista', 'Nome do Especialista Teleconsultor', 'Especialista'], 'CBP': ['CBP', 'cbo'], 'Conduta': ['Conduta'], 'Inten.Encaminhamento': ['Inten.Encaminhamento'], 'Concluida?': ['Concluída?', 'Concluida?'], 'Data_Solicitacao': ['Data Solicitação', 'Data Solicitacao', 'Data_Solicitacao', 'Dt.Criação'], 'Data_Resposta': ['Data Resposta', 'Data_Resposta', 'Dt.1ª resposta'], 'Situação': ['Situação', 'Situacao', 'Status']}
 mapped = {canonical: find_existing(candidates, df_raw.columns) for canonical, candidates in col_map_full.items()}
 df = df_raw.rename(columns={v: k for k, v in mapped.items() if v})
@@ -119,22 +115,18 @@ for dcol in ['Data_Solicitacao', 'Data_Resposta']:
 if 'Concluida?' in df.columns:
     df['Concluida?'] = df['Concluida?'].astype(str).str.lower().str.strip()
 
-col_map_categoria = {'CBO': ['CBO'], 'Categoria': ['Categoria']}
-mapped_cat = {canonical: find_existing(candidates, df_categoria_raw.columns) for canonical, candidates in col_map_categoria.items()}
-df_categoria = df_categoria_raw.rename(columns={v: k for k, v in mapped_cat.items() if v})
-if 'CBO' in df_categoria.columns and 'CBP' in df.columns:
-    df_categoria['CBO'] = df_categoria['CBO'].astype(str).str.replace(r'\.0$', '', regex=True)
-    cbo_to_categoria_map = df_categoria.set_index('CBO')['Categoria'].to_dict()
-    df['CBP'] = df['CBP'].astype(str).str.replace(r'\.0$', '', regex=True)
-    df['Categoria Profissional'] = df['CBP'].map(cbo_to_categoria_map).fillna('Não Mapeado')
+if df_categoria_raw is not None:
+    col_map_categoria = {'CBO': ['CBO'], 'Categoria': ['Categoria']}
+    mapped_cat = {canonical: find_existing(candidates, df_categoria_raw.columns) for canonical, candidates in col_map_categoria.items()}
+    df_categoria = df_categoria_raw.rename(columns={v: k for k, v in mapped_cat.items() if v})
+    if 'CBO' in df_categoria.columns and 'CBP' in df.columns:
+        df_categoria['CBO'] = df_categoria['CBO'].astype(str).str.replace(r'\.0$', '', regex=True)
+        cbo_to_categoria_map = df_categoria.set_index('CBO')['Categoria'].to_dict()
+        df['CBP'] = df['CBP'].astype(str).str.replace(r'\.0$', '', regex=True)
+        df['Categoria Profissional'] = df['CBP'].map(cbo_to_categoria_map).fillna('Não Mapeado')
 
-col_map_condicoes = {'Municipio Solicitante': ['MUNICÍPIOS', 'Municipio Solicitante'], 'CotaTotal': ['Cota total', 'Cota Total'], 'Monitor': ['Monitor(a) de Campo Responsável', 'Monitor'], 'Macrorregiao': ['Macrorregião de Saúde'], 'Microrregiao': ['Microrregião de Saúde']}
-mapped_cond = {canonical: find_existing(candidates, df_condicoes_raw.columns) for canonical, candidates in col_map_condicoes.items()}
-df_condicoes = df_condicoes_raw.rename(columns={v: k for k, v in mapped_cond.items() if v})
-
-col_map_estab = {'Municipio Solicitante': ['Município', 'Municipio Solicitante'], 'Estabelecimento': ['Unidade de Saúde', 'Estabelecimento']}
-mapped_estab = {canonical: find_existing(candidates, df_estabelecimentos_raw.columns) for canonical, candidates in col_map_estab.items()}
-df_estabelecimentos = df_estabelecimentos_raw.rename(columns={v: k for k, v in mapped_estab.items() if v})
+df_condicoes = df_condicoes_raw.copy()
+df_estabelecimentos = df_estabelecimentos_raw.copy()
 
 if 'Municipio Solicitante' in df_estabelecimentos.columns and 'Municipio Solicitante' in df_condicoes.columns:
     df_estabelecimentos = pd.merge(df_estabelecimentos, df_condicoes[['Municipio Solicitante', 'CotaTotal']], on='Municipio Solicitante', how='left').fillna({'CotaTotal': 0})
@@ -146,8 +138,9 @@ if 'Data_Solicitacao' in df.columns and 'Situação' in df.columns:
     df_estabelecimentos['Num_Estabelecimentos'] = df_estabelecimentos.groupby('Municipio Solicitante')['Estabelecimento'].transform('count')
     df_estabelecimentos = pd.merge(df_estabelecimentos, realizado_ano_ref, on='Municipio Solicitante', how='left').fillna({'Realizado_AnoRef': 0})
     df_estabelecimentos['Realizado_AnoRef'] = df_estabelecimentos['Realizado_AnoRef'].astype(int)
-    df_estabelecimentos['CotaMensal_Estabelecimento'] = ((df_estabelecimentos['CotaTotal'] - df_estabelecimentos['Realizado_AnoRef']) / 12 / df_estabelecimentos['Num_Estabelecimentos']).where(df_estabelecimentos['Num_Estabelecimentos'] > 0, 0).round(2)
-    df_estabelecimentos['CotaMensal_Estabelecimento'] = df_estabelecimentos['CotaMensal_Estabelecimento'].apply(lambda x: max(x, 0))
+    if 'CotaTotal' in df_estabelecimentos.columns and 'Num_Estabelecimentos' in df_estabelecimentos.columns:
+        df_estabelecimentos['CotaMensal_Estabelecimento'] = ((df_estabelecimentos['CotaTotal'] - df_estabelecimentos['Realizado_AnoRef']) / 12 / df_estabelecimentos['Num_Estabelecimentos']).where(df_estabelecimentos['Num_Estabelecimentos'] > 0, 0).round(2)
+        df_estabelecimentos['CotaMensal_Estabelecimento'] = df_estabelecimentos['CotaMensal_Estabelecimento'].apply(lambda x: max(x, 0))
 
 cols_to_merge_final = [col for col in ['Municipio Solicitante', 'Monitor', 'Macrorregiao', 'Microrregiao'] if col in df_condicoes.columns]
 if 'Municipio Solicitante' in df.columns and 'Municipio Solicitante' in df_condicoes.columns:
@@ -158,58 +151,42 @@ st.sidebar.header("Filtros")
 if 'Data_Solicitacao' in df.columns and not df['Data_Solicitacao'].dropna().empty:
     min_date_val = df['Data_Solicitacao'].dropna().min().date()
     max_date_val = df['Data_Solicitacao'].dropna().max().date()
-
-    st.sidebar.markdown("##### Período de Análise")
+    
     start_date = st.sidebar.date_input("Data de Início", min_date_val, min_value=min_date_val, max_value=max_date_val)
     end_date = st.sidebar.date_input("Data de Fim", max_date_val, min_value=start_date, max_value=max_date_val)
-
+    
     start_date_dt = pd.to_datetime(start_date)
     end_date_dt = pd.to_datetime(end_date)
     
     df_filtered_final = df[df['Data_Solicitacao'].between(start_date_dt, end_date_dt)].copy()
 
-    filters_config = [
-        {'column': 'Situação', 'label': 'Status'},
-        {'column': 'Monitor', 'label': 'Monitor de Campo'},
-        {'column': 'Macrorregiao', 'label': 'Macrorregião'},
-        {'column': 'Microrregiao', 'label': 'Microrregião'},
-        {'column': 'Municipio Solicitante', 'label': 'Município'},
-        {'column': 'Estabelecimento', 'label': 'Estabelecimento'},
-        {'column': 'Especialidade', 'label': 'Especialidade'},
-        {'column': 'Categoria Profissional', 'label': 'Categoria Profissional'},
-        {'column': 'SolicitanteNome', 'label': 'Solicitante'},
-        {'column': 'NomeEspecialista', 'label': 'Especialista'}
-    ]
-
+    filters_config = [{'column': 'Situação', 'label': 'Status'}, {'column': 'Monitor', 'label': 'Monitor de Campo'}, {'column': 'Macrorregiao', 'label': 'Macrorregião'}, {'column': 'Microrregiao', 'label': 'Microrregião'}, {'column': 'Municipio Solicitante', 'label': 'Município'}, {'column': 'Estabelecimento', 'label': 'Estabelecimento'}, {'column': 'Especialidade', 'label': 'Especialidade'}, {'column': 'Categoria Profissional', 'label': 'Categoria Profissional'}, {'column': 'SolicitanteNome', 'label': 'Solicitante'}, {'column': 'NomeEspecialista', 'label': 'Especialista'}]
     for f in filters_config:
         if f['column'] in df_filtered_final.columns:
             options = get_filter_options(df_filtered_final, f['column'])
             if options:
-                selection = st.sidebar.multiselect(
-                    f['label'], 
-                    options=options, 
-                    key=f['column'], 
-                    placeholder=f"Filtrar por {f['label']}..." # <-- MODERNO: Usando placeholder
-                )
+                selection = st.sidebar.multiselect(f['label'], options=options, key=f['column'], placeholder=f"Filtrar por {f['label']}...")
                 if selection:
                     df_filtered_final = df_filtered_final[df_filtered_final[f['column']].isin(selection)]
 else:
     df_filtered_final = df.copy()
 
 # --- CORPO PRINCIPAL DO DASHBOARD ---
-# Inicialização de variáveis para evitar erros
 fig_perf, fig_ts, fig_pie, fig_cat, fig_sol = None, None, None, None, None
 df_tabela_perf, df_especialidade_tabela = pd.DataFrame(), pd.DataFrame()
 concluido, percentual = 0, 0.0
 casos_ubs, total_encaminhados, evitados, intencao_encaminhar = 0, 0, 0, 0
 perc_ubs, perc_enc, perc_evitados = 0.0, 0.0, 0.0
 df_performance_estab_filtrado = pd.DataFrame()
+municipios_atendidos = 0
+total_estabelecimentos_visiveis = 0
 
 if not df_filtered_final.empty:
-    municipios_visiveis = df_filtered_final['Municipio Solicitante'].unique() if 'Municipio Solicitante' in df_filtered_final else []
-    estabelecimentos_visiveis_df = df_estabelecimentos[df_estabelecimentos['Municipio Solicitante'].isin(municipios_visiveis)]
-    total_estabelecimentos_visiveis = estabelecimentos_visiveis_df['Estabelecimento'].nunique()
-    municipios_atendidos = len(municipios_visiveis)
+    if 'Municipio Solicitante' in df_filtered_final.columns:
+        municipios_visiveis = df_filtered_final['Municipio Solicitante'].unique()
+        estabelecimentos_visiveis_df = df_estabelecimentos[df_estabelecimentos['Municipio Solicitante'].isin(municipios_visiveis)]
+        total_estabelecimentos_visiveis = estabelecimentos_visiveis_df['Estabelecimento'].nunique()
+        municipios_atendidos = len(municipios_visiveis)
 
     st.subheader("Indicadores Chave de Operação (KPIs)")
     col1, col2, col3, col4, col5 = st.columns(5)
@@ -254,42 +231,40 @@ if not df_filtered_final.empty:
 
     st.markdown("---")
     st.header("Análise de Performance de Metas")
-    if 'CotaMensal_Estabelecimento' in df_estabelecimentos.columns:
+    if 'CotaMensal_Estabelecimento' in df_estabelecimentos.columns and 'Municipio Solicitante' in df_filtered_final.columns:
         realizado_estab = df_filtered_final.groupby('Estabelecimento').size().reset_index(name='Realizado_Periodo')
         df_performance_estab_filtrado = pd.merge(df_estabelecimentos, realizado_estab, on='Estabelecimento', how='left').fillna({'Realizado_Periodo': 0})
         df_performance_estab_filtrado = df_performance_estab_filtrado[df_performance_estab_filtrado['Municipio Solicitante'].isin(municipios_visiveis)]
         df_performance_estab_filtrado['Realizado_Periodo'] = df_performance_estab_filtrado['Realizado_Periodo'].astype(int)
         st.subheader("Gráfico Realizado vs. Meta por Estabelecimento")
         if not df_performance_estab_filtrado.empty:
-            fig_perf = px.bar(df_performance_estab_filtrado, x='Estabelecimento', y=['Realizado_Periodo', 'CotaMensal_Estabelecimento'], 
-                              title='Comparativo de Realizado vs. Meta por Estabelecimento', barmode='group')
+            fig_perf = px.bar(df_performance_estab_filtrado, x='Estabelecimento', y=['Realizado_Periodo', 'CotaMensal_Estabelecimento'], title='Comparativo de Realizado vs. Meta por Estabelecimento', barmode='group')
             st.plotly_chart(fig_perf, use_container_width=True)
         st.subheader("Tabela de Performance por Estabelecimento")
         if 'CotaMensal_Estabelecimento' in df_performance_estab_filtrado.columns and df_performance_estab_filtrado['CotaMensal_Estabelecimento'].sum() > 0:
              df_performance_estab_filtrado['Percentual Atingido'] = (df_performance_estab_filtrado['Realizado_Periodo'] / df_performance_estab_filtrado['CotaMensal_Estabelecimento'] * 100).fillna(0)
         else:
              df_performance_estab_filtrado['Percentual Atingido'] = 0.0
-
         def style_performance(v):
             if pd.isna(v): return ''
             return 'background-color: #f8d7da;' if v < 50 else ('background-color: #fff3cd;' if v < 90 else 'background-color: #d4edda;')
         cols_perf = ['Municipio Solicitante', 'Estabelecimento', 'CotaMensal_Estabelecimento', 'Realizado_Periodo', 'Percentual Atingido']
         df_tabela_perf = df_performance_estab_filtrado[cols_perf].copy()
-        st.dataframe(df_tabela_perf.style.apply(lambda s: s.map(style_performance), subset=['Percentual Atingido']).format({'Percentual Atingido': '{:.1f}%', 'CotaMensal_Estabelecimento': '{:.2f}'}), use_container_width=True)
+        st.dataframe(df_tabela_perf.style.map(style_performance, subset=['Percentual Atingido']).format({'Percentual Atingido': '{:.1f}%', 'CotaMensal_Estabelecimento': '{:.2f}'}), use_container_width=True)
 
     st.markdown("---")
     st.header("Análises Descritivas")
     st.subheader("Evolução Mensal")
     df_ts = df_filtered_final.set_index('Data_Solicitacao').resample('MS').size().reset_index(name='Quantidade')
     df_ts['Mês'] = df_ts['Data_Solicitacao'].dt.strftime('%b/%Y')
-    fig_ts = px.line(df_ts, x='Mês', y='Quantidade', title='Evolução Mensal das Teleconsultorias', markers=True, text='Quantidade')
+    fig_ts = px.line(df_ts, x='Mês', y='Quantidade', title='Evolução Mensal', markers=True, text='Quantidade')
     fig_ts.update_traces(textposition='top center')
     st.plotly_chart(fig_ts, use_container_width=True)
 
     st.subheader("Distribuição por Especialidade")
     if 'Especialidade' in df_filtered_final.columns:
-        esp_count = df_filtered_final['Especialidade'].value_counts().reset_index()
-        esp_count.columns = ['Especialidade', 'Quantidade']
+        esp_count = df_filtered_final['Especialidade'].value_counts().reset_index(name='Quantidade')
+        esp_count = esp_count.rename(columns={'index': 'Especialidade'})
         fig_pie = px.pie(esp_count, names='Especialidade', values='Quantidade', title='Distribuição por Especialidade', hole=0.3)
         st.plotly_chart(fig_pie, use_container_width=True)
         df_especialidade_tabela = esp_count.copy()
@@ -298,24 +273,22 @@ if not df_filtered_final.empty:
     with col_desc1:
         st.subheader("Distribuição por Categoria Profissional")
         if 'Categoria Profissional' in df_filtered_final.columns:
-            cat_count = df_filtered_final['Categoria Profissional'].value_counts().reset_index()
-            cat_count.columns = ['Categoria Profissional', 'Quantidade']
-            fig_cat = px.bar(cat_count, x='Categoria Profissional', y='Quantidade', title='Teleconsultorias por Categoria', text_auto=True)
+            cat_count = df_filtered_final['Categoria Profissional'].value_counts().reset_index(name='Quantidade')
+            cat_count = cat_count.rename(columns={'index': 'Categoria Profissional'})
+            fig_cat = px.bar(cat_count, x='Categoria Profissional', y='Quantidade', title='Por Categoria', text_auto=True)
             st.plotly_chart(fig_cat, use_container_width=True)
     with col_desc2:
         st.subheader("Distribuição por Solicitante")
         if 'SolicitanteNome' in df_filtered_final.columns:
-            solicitante_count = df_filtered_final['SolicitanteNome'].value_counts().nlargest(20).reset_index()
-            solicitante_count.columns = ['SolicitanteNome', 'Quantidade']
+            solicitante_count = df_filtered_final['SolicitanteNome'].value_counts().nlargest(20).reset_index(name='Quantidade')
+            solicitante_count = solicitante_count.rename(columns={'index': 'SolicitanteNome'})
             fig_sol = px.bar(solicitante_count, x='SolicitanteNome', y='Quantidade', title='Top 20 Solicitantes', text_auto=True)
             st.plotly_chart(fig_sol, use_container_width=True)
 
-    # --- DETALHAMENTO E EXPORTAÇÃO ---
     st.markdown("---")
     st.header("Detalhamento e Exportação")
     if 'Municipio Solicitante' in df_filtered_final.columns:
         st.subheader("Gerador de Relatórios por Município")
-        # <-- MODERNO: Usando index=None e placeholder
         municipio_relatorio = st.selectbox(
             "Selecione um município para o relatório detalhado:",
             options=sorted(df_filtered_final['Municipio Solicitante'].unique()),
@@ -329,15 +302,14 @@ if not df_filtered_final.empty:
                 label=f"📥 Download Relatório de {municipio_relatorio}",
                 data=to_excel_report_bytes(df_sumario, df_detalhes),
                 file_name=f"Relatorio_{municipio_relatorio.replace(' ', '_')}.xlsx",
-                use_container_width=True # <-- MODERNO: Usando use_container_width
+                use_container_width=True
             )
 
     st.subheader("Dados Gerais Filtrados")
     cols_show = [col for col in ['Data_Solicitacao', 'Municipio Solicitante', 'Estabelecimento', 'Especialidade', 'SolicitanteNome', 'Categoria Profissional', 'Situação', 'Monitor'] if col in df_filtered_final.columns]
-    st.dataframe(df_filtered_final[cols_show], use_container_width=True) # <-- MODERNO: Usando use_container_width
-    st.download_button(label="📥 Download Dados Filtrados", data=to_excel_bytes_generic(df_filtered_final[cols_show]), file_name="Relatorio_Geral.xlsx", use_container_width=True) # <-- MODERNO: Usando use_container_width
+    st.dataframe(df_filtered_final[cols_show], use_container_width=True)
+    st.download_button(label="📥 Download Dados Filtrados", data=to_excel_bytes_generic(df_filtered_final[cols_show]), file_name="Relatorio_Geral.xlsx", use_container_width=True)
 
-    # --- GERAÇÃO DE PDF ---
     st.markdown("---")
     st.header("Exportar Relatório em PDF")
 
@@ -345,7 +317,6 @@ if not df_filtered_final.empty:
         def fig_to_base64(fig):
             if fig is None: return None
             try:
-                # <-- MODERNO: Usando engine_config para passar argumentos
                 engine_config = {'chromium_args': ['--no-sandbox', '--headless', '--disable-gpu', '--disable-dev-shm-usage']}
                 img_bytes = fig.to_image(format="png", width=900, scale=1.5, engine_config=engine_config)
                 return base64.b64encode(img_bytes).decode()
@@ -357,20 +328,21 @@ if not df_filtered_final.empty:
         
         kpi_html = '<div class="kpi-container">'
         for k, v in kpis_dict.items():
-            kpi_html += f'<div class="kpi"><div class="kpi-value">{v}</div><div class="kpi-label">{k}</div></div>'
+            kpi_html += f'<div class="kpi"><div class="kpi-value">{v}</div><div class.kpi-label">{k}</div></div>'
         kpi_html += '</div>'
         if observacao_fluxo:
             kpi_html += f'<div class="observacao">{observacao_fluxo}</div>'
 
-        # (O CSS e HTML do template continuam os mesmos)
         html = f"""
         <html><head><meta charset="UTF-8">
             <style>
-                body {{ font-family: 'Helvetica', sans-serif; }} h1, h2 {{ color: #33ac47; }}
                 /* Estilos melhorados para o PDF */
-                .styled-table {{ border-collapse: collapse; width: 100%; font-size: 9px; }}
+                body {{ font-family: 'Helvetica', sans-serif; font-size: 10px; }}
+                h1 {{ text-align: center; color: #33ac47; }}
+                h2 {{ color: #33ac47; border-bottom: 1px solid #ddd; padding-bottom: 5px; margin-top: 20px;}}
+                .styled-table {{ border-collapse: collapse; width: 100%; font-size: 9px; margin-bottom: 20px;}}
                 .styled-table th, .styled-table td {{ border: 1px solid #ddd; padding: 6px; text-align: left;}}
-                .styled-table th {{ background-color: #33ac47; color: white; }}
+                .styled-table th {{ background-color: #f2f2f2; }}
                 .chart-container {{ page-break-inside: avoid; text-align: center; margin-top: 25px; }}
                 img {{ max-width: 100%; }}
             </style>
@@ -415,7 +387,7 @@ if not df_filtered_final.empty:
                 data=pdf_bytes,
                 file_name=f"Relatorio_{datetime.now().strftime('%Y%m%d')}.pdf",
                 mime="application/pdf",
-                use_container_width=True # <-- MODERNO: Usando use_container_width
+                use_container_width=True
             )
 
 st.caption(f"Atualizado em {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")

@@ -361,7 +361,7 @@ if not df['Data_Solicitacao'].dropna().empty:
             try:
                 # Esta linha DESATIVA a sandbox, resolvendo o erro no Linux
                 engine_config = {'chromium_args': ['--no-sandbox', '--headless']}
-                img_bytes = fig.to_image(format="png", width=800, engine_config=engine_config)
+                img_bytes = fig.to_image(format="png", width=800, engine_config = {'chromium_args': ['--no-sandbox','--headless','--disable-gpu','--disable-dev-shm-usage']}
                 return base64.b64encode(img_bytes).decode()
             except Exception as e:
                 st.warning(f"Não foi possível converter um gráfico para o PDF. Erro: {e}")

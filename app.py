@@ -14,7 +14,7 @@ import plotly.io as pio  # <-- Adicione esta importação
 
 # --- SOLUÇÃO PARA O ERRO DO KALEIDO NO LINUX ---
 # Adicione estas duas linhas para desativar a sandbox e garantir o modo headless
-pio.kaleido.scope.chromium_args = ("--headless", "--no-sandbox")
+pio.kaleido.engine.chromium_args = ("--headless", "--no-sandbox")
 # ----------------------------------------------------
 
 # Definir locale para formatação de números em português

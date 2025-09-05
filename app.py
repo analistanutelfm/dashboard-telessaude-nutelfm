@@ -287,6 +287,8 @@ if not df['Data_Solicitacao'].dropna().empty:
     st.subheader("Distribuição por Especialidade")
     if 'Especialidade' in df_filtered_final.columns and not df_filtered_final.empty:
         esp_count = df_filtered_final['Especialidade'].value_counts().reset_index(name='count')
+        esp_count.rename(columns={'index': 'Especialidade'}, inplace=True) # <-- ADICIONE ESTA LINHA
+
         df_pie_data = esp_count
         if 'Tempo_Resposta_Horas' in df_filtered_final.columns:
             avg_resp = df_filtered_final.groupby('Especialidade')['Tempo_Resposta_Horas'].mean().round(1).reset_index(name='avg_resp_horas')

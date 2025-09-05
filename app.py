@@ -321,7 +321,8 @@ if not df['Data_Solicitacao'].dropna().empty:
         st.subheader("Distribuição por Solicitante")
         if 'SolicitanteNome' in df_filtered_final.columns and not df_filtered_final['SolicitanteNome'].dropna().empty:
             solicitante_count = df_filtered_final['SolicitanteNome'].value_counts().reset_index()
-            fig_sol = px.bar(solicitante_count, x='SolicitanteNome', y='count', title='Teleconsultorias por Solicitante', labels={'count':'Quantidade', 'SolicitanteNome': 'Nome do Solicitante'}, color_discrete_sequence=['#6f42c1'])
+            solicitante_count.columns = ['SolicitanteNome', 'Quantidade']
+            fig_sol = px.bar(solicitante_count, x='SolicitanteNome', y='Quantidade', title='Teleconsultorias por Solicitante', labels={'Quantidade':'Quantidade', 'SolicitanteNome': 'Nome do Solicitante'}, color_discrete_sequence=['#6f42c1'])
             st.plotly_chart(fig_sol, use_container_width=True)
         else:
             st.info("Sem dados de Solicitantes para exibir.")

@@ -330,31 +330,41 @@ if not df['Data_Solicitacao'].dropna().empty:
     # --- 7. DETALHAMENTO E EXPORTAÇÃO DE DADOS ---
     st.markdown("---")
     st.header("Detalhamento e Exportação de Dados")
-    st.subheader("Gerador de Relatórios por Município")
-    municipios_disponiveis = sorted(df_filtered_final['Municipio Solicitante'].unique())
-    if not municipios_disponiveis:
-        st.info("Nenhum município com dados no período selecionado para gerar relatório.")
-    else:
-        municipio_relatorio = st.selectbox("Selecione um município para o relatório detalhado:", options=municipios_disponiveis, index=None)
-        if municipio_relatorio:
-            df_sumario_relatorio = df_performance_estab_filtrado[df_performance_estab_filtrado['Municipio Solicitante'] == municipio_relatorio].copy()
-            df_detalhes_relatorio = df_filtered_final[df_filtered_final['Municipio Solicitante'] == municipio_relatorio].copy()
-            cols_summary = [col for col in ['Municipio Solicitante', 'Estabelecimento', 'CotaMensal_Estabelecimento', 'Realizado_Periodo', 'Percentual Atingido'] if col in df_sumario_relatorio.columns]
-            df_sumario_relatorio = df_sumario_relatorio[cols_summary]
-            cols_details = [col for col in ['Data_Solicitacao', 'Municipio Solicitante', 'Estabelecimento', 'Especialidade', 'SolicitanteNome', 'Categoria Profissional', 'Situação', 'Monitor', 'Conduta', 'Inten.Encaminhamento'] if col in df_detalhes_relatorio.columns]
-            df_detalhes_relatorio = df_detalhes_relatorio[cols_details]
-            excel_bytes = to_excel_report_bytes(df_sumario_relatorio, df_detalhes_relatorio)
-            st.download_button(label=f"📥 Download Relatório de {municipio_relatorio}", data=excel_bytes, file_name=f"Relatorio_{municipio_relatorio.replace(' ', '_')}.xlsx", mime="application/vnd.openxmlformats-officedocument.sheet", use_container_width=True)
+st.subheader("Gerador de Relatórios por Município")
+municipios_disponiveis = sorted(df_filtered_final['Municipio Solicitante'].unique())
+if not municipios_disponiveis:
+    st.info("Nenhum município com dados no período selecionado para gerar relatório.")
+else:
+    # 1. Adicionamos o placeholder no início da lista de opções
+    placeholder = "Escolha um município para começar..."
+    opcoes_com_placeholder = [placeholder] + municipios_disponiveis
 
-    st.subheader("Detalhamento Geral das Teleconsultorias Filtradas")
-    cols_show = [col for col in ['Data_Solicitacao', 'Municipio Solicitante', 'Estabelecimento', 'Especialidade', 'SolicitanteNome', 'Categoria Profissional', 'Situação', 'Monitor'] if col in df_filtered_final.columns]
-    if not df_filtered_final.empty:
-        df_detalhe_geral = df_filtered_final[cols_show].copy()
-        df_detalhe_geral.reset_index(drop=True, inplace=True)
-        df_detalhe_geral.index += 1
-        st.dataframe(df_detalhe_geral)
-        st.download_button(label="📥 Download dos Dados Filtrados (Geral)", data=to_excel_bytes_generic(df_detalhe_geral), file_name="Relatorio_Geral_Teleconsultorias.xlsx", mime="application/vnd.openxmlformats-officedocument.sheet")
+    # 2. Criamos o selectbox. O padrão será o índice 0 (nosso placeholder)
+    municipio_relatorio = st.selectbox(
+        "Selecione um município para o relatório detalhado:",
+        options=opcoes_com_placeholder
+    )
 
+    # 3. Só executamos o código se a seleção for DIFERENTE do placeholder
+    if municipio_relatorio != placeholder:
+        df_sumario_relatorio = df_performance_estab_filtrado[df_performance_estab_filtrado['Municipio Solicitante'] == municipio_relatorio].copy()
+        df_detalhes_relatorio = df_filtered_final[df_filtered_final['Municipio Solicitante'] == municipio_relatorio].copy()
+
+        cols_summary = [col for col in ['Municipio Solicitante', 'Estabelecimento', 'CotaMensal_Estabelecimento', 'Realizado_Periodo', 'Percentual Atingido'] if col in df_sumario_relatorio.columns]
+        df_sumario_relatorio = df_sumario_relatorio[cols_summary]
+
+        cols_details = [col for col in ['Data_Solicitacao', 'Municipio Solicitante', 'Estabelecimento', 'Especialidade', 'SolicitanteNome', 'Categoria Profissional', 'Situação', 'Monitor', 'Conduta', 'Inten.Encaminhamento'] if col in df_detalhes_relatorio.columns]
+        df_detalhes_relatorio = df_detalhes_relatorio[cols_details]
+
+        excel_bytes = to_excel_report_bytes(df_sumario_relatorio, df_detalhes_relatorio)
+
+        st.download_button(
+            label=f"📥 Download Relatório de {municipio_relatorio}",
+            data=excel_bytes,
+            file_name=f"Relatorio_{municipio_relatorio.replace(' ', '_')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.sheet",
+            use_container_width=True # Esta linha pode dar erro se seu streamlit for < 1.11, se der, remova-a.
+        )
 
     # ### SEÇÃO DE EXPORTAÇÃO DE PDF COM WEASYPRINT ###
     st.markdown("---")

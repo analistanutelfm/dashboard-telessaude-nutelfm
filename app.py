@@ -167,7 +167,7 @@ if not df['Data_Solicitacao'].dropna().empty:
     if 'Situação' in df.columns:
         st.sidebar.markdown("---")
         todos_status = sorted(df['Situação'].dropna().unique())
-        status_selecionado = st.sidebar.multiselect("Status", options=todos_status, placeholder="Filtrar por status")
+        status_selecionado = st.sidebar.multiselect("Status", options=todos_status)
         if status_selecionado:
             df_base_filtrado = df_base_filtrado[df_base_filtrado['Situação'].isin(status_selecionado)]
     st.sidebar.markdown("---")
@@ -176,7 +176,7 @@ if not df['Data_Solicitacao'].dropna().empty:
         if f['column'] in df_base_filtrado.columns:
             options = get_filter_options(df_base_filtrado, f['column'])
             if options:
-                selection = st.sidebar.multiselect(f['label'], options=options, key=f['column'], placeholder="Selecione as opções")
+                selection = st.sidebar.multiselect(f['label'], options=options, key=f['column'])
                 if selection:
                     df_base_filtrado = df_base_filtrado[df_base_filtrado[f['column']].isin(selection)]
     df_filtered_final = df_base_filtrado[df_base_filtrado['Data_Solicitacao'].between(start_date_dt, end_date_dt)].copy()

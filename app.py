@@ -21,9 +21,9 @@ try:
 except locale.Error:
     st.warning("Locale 'pt_BR.UTF-8' não encontrado.")
     locale.setlocale(locale.LC_ALL, '')
-    
+
 # --- 3. FUNÇÕES AUXILIARES ---
-@st.cache_data
+@st.cache(allow_output_mutation=True)
 def load_excel_upload(uploaded_file):
     """Lê um arquivo Excel a partir de um upload, tratando .xls e .xlsx."""
     try:
@@ -46,7 +46,7 @@ def load_excel_upload(uploaded_file):
         st.error(f"Erro ao ler arquivo Excel do upload: {e}")
         return None
 
-@st.cache_data
+@st.cache(allow_output_mutation=True)
 def load_local_data(path):
     if not os.path.exists(path): st.error(f"ERRO: Arquivo '{path}' não encontrado."); return None
     try: return pd.read_excel(path)

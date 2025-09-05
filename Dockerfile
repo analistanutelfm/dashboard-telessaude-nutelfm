@@ -1,7 +1,7 @@
 # 1. Imagem Base
 FROM python:3.11-slim
 
-# 2. Configura o locale pt_BR.UTF-8
+# 2. Configura o locale pt_BR.UTF-8 para o sistema
 RUN apt-get update && apt-get install -y locales && \
     sed -i -e 's/# pt_BR.UTF-8 UTF-8/pt_BR.UTF-8 UTF-8/' /etc/locale.gen && \
     dpkg-reconfigure --frontend=noninteractive locales
